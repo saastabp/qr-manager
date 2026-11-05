@@ -156,7 +156,7 @@ flowchart LR
 
 | Stack (CDK TypeScript) | Contents | Why separate |
 |---|---|---|
-| `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, fallback alarm, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
+| `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, KVS failure alarm, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
 | `qr-manager-Auth` | Invite-only pool (RETAIN), SES email, `qr-cli` client (`disableOAuth: true`) | Holds identities |
 | `qr-manager-Api` | DynamoDB table (RETAIN), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
 | `qr-manager-Analytics` | Glue table, Athena workgroup | Schema comes from a real log file; fixes must not touch Edge |
@@ -222,7 +222,7 @@ flowchart TD
     INV --> L
     HIT --> L
     FB --> L
-    FB -.->|5 or more in 5 min| AL[Alarm email]
+    FB -.->|Read failed, not a miss| AL[Alarm email]
 ```
 
 **Create a code.** Validation and ownership happen before anything is stored. The call is synchronous,
@@ -339,6 +339,7 @@ a browser user can leave without retrying.
 **Updates do not render.** An existing code's PNG never changes, so `PATCH` only touches DynamoDB and
 KVS. No confirming read is needed after a write: KVS's success response and the render Lambda's result
 are the confirmation. `live` means KVS accepted the value; edge locations catch up shortly afterwards.
+A sandbox test took 23 seconds, from one edge location and one sample.
 
 ### Rendering and storing PNGs
 
@@ -376,6 +377,10 @@ Standard logging v2 to S3 as JSON, under `qr-logs/year=/month=/day=`. Destinatio
 `<bucket>/qr-logs`, suffix `{yyyy}/{MM}/{dd}`, with an explicit `delivery.logs.amazonaws.com` bucket
 statement. Fields: `timestamp(ms)`, `x-edge-request-id`, `c-ip`, `cs-uri-stem`, `sc-status`,
 `cs(User-Agent)`, `c-country`, `x-edge-result-type`, `time-taken`, `viewer-request-log-data`.
+
+Confirmed in sandbox: S3 files arrive within minutes, and the JSON keys match these field names. All
+values are strings. CloudFront prefixes each function log line, so a line reads `<request id> <json>`
+and is not valid JSON. CloudWatch filters on it must use text matching.
 
 ## 6. Code segregation
 
@@ -525,7 +530,10 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
   outcome; the access log supplies `time-taken`, joined on `x-edge-request-id`.
 - **Style:** braces and own-line bodies everywhere; NumPy docstrings on all public Python.
 - **Alarms:** the catch-all means failures become quiet redirects to home, so a function-errors alarm
-  would never fire. Instead a metric filter on `fallback` lines alarms at 5 or more in 5 minutes. A
+  would never fire. Instead a metric filter counts `fallback` lines, excluding `KeyNotFound`, and alarms
+  on a single match. Misses are excluded because bots cause them; the threshold is 1 because at this
+  scan volume an outage may produce only a few failures. A valid code missing from KVS does not alarm,
+  but a failed publish already shows as `pending` and raises the alarm below. A
   second metric filter on the API Lambda's log group alarms on any KVS publish or render failure. Both
   use the SNS topic in the Edge stack, which is for operational alerts only.
 - **Images:** the bucket is private with public access blocked. Only the render Lambda can write, and
@@ -566,7 +574,7 @@ needed yet.
   deploy. If times approach the limit, use the asynchronous option in section 5.
 - **A `pending` change leaves the old destination live.** This matters most when retracting a URL.
   Phase I relies on the 502 and the failure alarm; BC7 automates the repair in Phase II.
-- **A miss and a KVS failure look alike** to the function, and both go home. Check after deploy
-  whether the error text separates them.
+- **A real KVS read failure has not been observed.** Both a miss and a failure go home. A miss logs
+  `Error: KeyNotFound`, confirmed in sandbox, so anything else is treated as a failure.
 - **Function deploys go live immediately**, hence the tests, the separate Edge stack, and deploying to
   sandbox first.

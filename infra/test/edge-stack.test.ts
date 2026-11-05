@@ -79,12 +79,12 @@ describe.each([
     });
   });
 
-  it('alarms on fallback outcomes', () => {
+  it('alarms on KVS failures, but not on ordinary misses', () => {
     template.hasResourceProperties('AWS::Logs::MetricFilter', {
-      FilterPattern: '"\\"outcome\\":\\"fallback\\""',
+      FilterPattern: '"\\"outcome\\":\\"fallback\\"" -"KeyNotFound"',
     });
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
-      Threshold: 5,
+      Threshold: 1,
       TreatMissingData: 'notBreaching',
     });
   });
