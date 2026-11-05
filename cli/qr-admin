@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Runs the qr-admin client. uv installs Python and the dependencies if needed.
+set -euo pipefail
+cli_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec uv run --quiet --project "$cli_dir" python "$cli_dir/qr_admin.py" "$@"

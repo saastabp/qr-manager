@@ -12,4 +12,7 @@ node_modules/
 cdk.out/
 
 # Generated deploy output
-infra/outputs.json
+infra/outputs-*.json
+
+# PNGs saved by qr-admin
+cli/*.png

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
@@ -33,6 +34,7 @@ class Api:
         body: Any = None,
         actor: Actor = OWNER,
         query: dict[str, str] | None = None,
+        base64_encoded: bool = False,
     ) -> tuple[int, dict[str, Any]]:
         """Send one request and return the status and parsed body."""
         event = {
@@ -50,7 +52,7 @@ class Api:
                     "jwt": {"claims": {"sub": actor.sub, "email": actor.email}, "scopes": []}
                 },
             },
-            "isBase64Encoded": False,
+            "isBase64Encoded": base64_encoded,
         }
         if isinstance(body, str):
             event["body"] = body
@@ -117,6 +119,14 @@ def test_a_malformed_body_returns_400(api, bad_body):
 
     assert status == 400
     assert body["error"]["fields"]
+
+
+def test_a_base64_encoded_body_is_decoded(api):
+    encoded = base64.b64encode(json.dumps(DYNAMIC_BODY).encode()).decode()
+
+    status, _ = api.call("POST", "/codes", encoded, base64_encoded=True)
+
+    assert status == 201
 
 
 def test_a_failed_step_returns_502_naming_the_step(api):

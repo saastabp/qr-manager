@@ -179,8 +179,13 @@ definition and differ only by config.
 
 Every change deploys to sandbox first, including the risky first checks in section 11. Sandbox has a
 real domain so test codes can be scanned with a phone. The CLI selects an environment with
-`--env sandbox`, and `prod` is the default. Deploys are by hand:
-`npx cdk deploy 'sandbox/*' --profile brian-admin`.
+the required `--env` option, so prod is never used by accident. Deploys are by hand:
+`npx cdk deploy 'sandbox/*' --profile brian-admin --outputs-file outputs-sandbox.json`. The CLI reads
+`infra/outputs-<env>.json`; each environment has its own file because CDK overwrites the file on each
+deploy.
+
+Confirmed in sandbox: the API Lambda's role credentials and the bundled `awscrt` work with the KVS
+SigV4A API, so the account-wide session token setting was not needed.
 
 Both copies are in the same account, so they share the CloudFront free tier. At this volume the
 sandbox should add almost nothing to the cost.
@@ -579,14 +584,10 @@ needed yet.
 
 ## 11. Risks
 
-- **SigV4A from Lambda is unproven.** The KVS write API needs SigV4A. boto3 should need `awscrt`, and
-  temporary credentials must be v2 session tokens. Neither is confirmed by AWS docs for Lambda role
-  credentials. It is the first check after the API deploys. The documented fallback,
-  `aws iam set-security-token-service-preferences`, is **account-wide**, so it needs explicit approval.
-- **Render time on Lambda is unmeasured.** `POST /codes` now waits for the render. It took under a
-  second on a 20-core machine; the estimate for the whole `POST` on a Lambda cold start is 3 to 5 s.
-  The render Lambda gets 1024 MB and a 10 s timeout, so a stuck render fails quickly. Measure on first
-  deploy. If times approach the limit, use the asynchronous option in section 5.
+- **`POST /codes` waits for a render.** Measured in sandbox: 5.6 s for a create with both Lambdas cold,
+  1.4 s for the render itself, 0.2 s for the KVS write, and 0.8 s for an image request. That is well
+  inside the 30 s limit. The render Lambda gets 1024 MB and a 10 s timeout, so a stuck render fails
+  quickly. If times ever approach the limit, use the asynchronous option in section 5.
 - **A `pending` change leaves the old destination live.** This matters most when retracting a URL.
   Phase I relies on the 502 and the failure alarm; BC7 automates the repair in Phase II.
 - **A real KVS read failure has not been observed.** Both a miss and a failure go home. A miss logs

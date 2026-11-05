@@ -55,13 +55,14 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
 
     def body(schema: type[BaseModel]) -> Any:
         """Parse the request body, turning any problem into field errors."""
-        raw = app.current_event.body or "{}"
         try:
+            # API Gateway base64-encodes some bodies, depending on the content type.
+            raw = app.current_event.decoded_body or "{}"
             return schema.model_validate(json.loads(raw))
-        except json.JSONDecodeError:
-            raise InvalidInput([FieldError("body", "Body must be valid JSON")]) from None
         except ValidationError as error:
             raise InvalidInput(_field_errors(error)) from None
+        except ValueError:
+            raise InvalidInput([FieldError("body", "Body must be valid JSON")]) from None
 
     @app.post("/codes")
     def post_code() -> Response:
