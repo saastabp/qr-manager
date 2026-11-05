@@ -413,6 +413,7 @@ qr-manager/
   README.md  CLAUDE.md  .gitignore
   docs/  DESIGN.md  OPERATIONS.md  aws-architecture.drawio
   infra/  bin/app.ts  lib/{config,stage,edge-stack,auth-stack,api-stack,analytics-stack,python-lambda}.ts
+          lib/edge/{redirect-service,scan-logging,alerts}.ts  lib/api/
           lib/cloudfront-functions/redirect.js  test/
   backend/  pyproject.toml  uv.lock  tests/
   backend/src/  api_handler.py  bootstrap.py
@@ -426,6 +427,11 @@ qr-manager/
 own directory because CDK hashes that directory; a root lockfile would let a dependency bump skip the
 Lambda redeploy. The separate `render/` project keeps Pillow out of the API bundle and means render
 code cannot import business code.
+
+Larger stacks are short parents that assemble custom constructs from a folder of the same name, such
+as `lib/edge/`. Small stacks stay as single files until they need more. Split a stack before its first
+deploy: a construct's position is part of each resource's CloudFormation ID, so moving a deployed
+resource makes CloudFormation try to replace it.
 
 `cli/qr-admin` is a small shell wrapper that runs `qr_admin.py` through uv. uv is the only prerequisite,
 because it installs Python and the dependencies itself.
