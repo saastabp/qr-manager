@@ -159,7 +159,7 @@ flowchart LR
 | `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, KVS failure alarm, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
 | `qr-manager-Auth` | Invite-only pool (RETAIN), SES email, `qr-cli` client (`disableOAuth: true`) | Holds identities |
 | `qr-manager-Api` | DynamoDB table (RETAIN), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
-| `qr-manager-Analytics` | Glue table, Athena workgroup | Schema comes from a real log file; fixes must not touch Edge |
+| `qr-manager-Analytics` | Glue database and table, Athena workgroup `qr_analytics_<env>` | Schema comes from a real log file; fixes must not touch Edge |
 
 The names above are logical. Each environment deploys its own copy as `qr-manager-<env>-<Stack>`, for
 example `qr-manager-sandbox-Edge`.
@@ -402,6 +402,27 @@ Confirmed in sandbox: S3 files arrive within minutes, and the JSON keys match th
 values are strings. CloudFront prefixes each function log line, so a line reads `<request id> <json>`
 and is not valid JSON. CloudWatch filters on it must use text matching.
 
+### Querying scans
+
+A Glue table describes the log files, and Athena queries them in place, so there is no database to run.
+Partition projection works out the `year=/month=/day=` folders from a formula, so no job has to register
+them. Each environment has its own database, `qr_manager_<env>`, and workgroup, `qr_analytics_<env>`. The
+workgroup stops any query reading more than 100 MB, and clients cannot override that. Results go to
+`athena-results/` in the log bucket, so they expire with the logs.
+
+Confirmed in sandbox: the table reads every field, including the mapped names `cs(User-Agent)` and
+`timestamp(ms)`. Three things shape how scans are counted:
+
+- **Most traffic is noise.** Only 8 of 292 function responses were `hit`. The rest were `fallback`,
+  `invalid`, and `home`, mostly from bots, and the `fallback` count also includes test misses.
+- **A scan is a function response that is a `hit` or has no outcome, on a path other than `/`.** The `-`
+  case keeps scans from embedded POPs, which can omit custom data. None of those 292 lacked an outcome, but
+  the sample is small.
+- **Values need care.** User agents are URL-encoded, and a missing outcome is a literal `-`. `Redirect`
+  rows are the HTTP to HTTPS 301, and `Error` rows are refused requests, so both are excluded.
+
+Example queries are in [`OPERATIONS.md`](OPERATIONS.md).
+
 ## 6. Code segregation
 
 ```mermaid
@@ -538,7 +559,7 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
 
 - **Auth:** invite-only pool. The script uses `USER_PASSWORD_AUTH` on `qr-cli`, prompted with
   `getpass`, and sends the ID token, because access tokens have no `email` claim. Tokens are cached in
-  `~/.config/qr-manager/tokens.json` with mode 0600. The first user is created with
+  `~/.config/qr-manager/tokens-<env>.json` with mode 0600. The first user is created with
   `admin-create-user` and `admin-set-user-password --permanent`.
 - **API logging:** pairable entry and exit logs with correlation ID and `duration_ms`; the error body
   and `logger.exception` at ERROR; own lines for DynamoDB writes, KVS calls with latency, and
