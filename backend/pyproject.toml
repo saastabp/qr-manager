@@ -1,0 +1,88 @@
+# Python project config for the API Lambda (backend/).
+# uv reads this to install dependencies; pytest, ruff and import-linter
+# read their own [tool.*] sections below.
+
+# --- Project metadata and runtime dependencies --------------------------------
+# Everything in "dependencies" is packaged into the deployed Lambda.
+[project]
+name = "qr-manager-backend"
+version = "0.1.0"
+description = "QR Manager API (AWS Lambda, Python 3.14, arm64)"
+# Must match the Lambda runtime set in the CDK stack.
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "aws-lambda-powertools>=3,<4",  # Structured logging and API routing
+    "awscrt>=0.38",                 # SigV4A signing, needed for KVS writes
+    "boto3>=1.34",                  # AWS SDK; left out of the bundle because Lambda provides it
+    "pydantic>=2,<3",               # Request and response validation
+]
+
+# --- Development-only tools ---------------------------------------------------
+# Used on your machine and in tests. Never packaged into the Lambda.
+[dependency-groups]
+dev = [
+    "import-linter>=2",  # Enforces the layer rules at the bottom of this file
+    "moto[dynamodb]>=5", # Fake DynamoDB for adapter tests
+    "pytest>=8",         # Test runner
+    "ruff>=0.6",         # Linter and import sorter
+]
+
+# --- uv settings --------------------------------------------------------------
+[tool.uv]
+# This is an application, not a library. The CDK bundling step copies src/
+# into the Lambda package, so uv doesn't need to build a wheel.
+package = false
+
+# --- Test settings ------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["src"]   # Lets tests write "import cases", matching the Lambda layout
+testpaths = ["tests"]
+
+# --- Lint settings ------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src"]
+
+[tool.ruff.lint]
+# E/F: errors and bugs. I: import order. UP: modern syntax.
+# B: likely bugs. TID: import hygiene.
+select = ["E", "F", "I", "UP", "B", "TID"]
+
+# --- Code segregation rules (docs/DESIGN.md, section 6) -----------------------
+# "uv run lint-imports" fails if any layer imports something it must not.
+[tool.importlinter]
+root_packages = ["models", "cases", "adapters", "handlers", "common"]
+# Needed so the rules below can name third-party packages such as boto3.
+include_external_packages = true
+
+# models/ describes data only: no rules, no AWS, no HTTP.
+[[tool.importlinter.contracts]]
+name = "models are pure data"
+type = "forbidden"
+source_modules = ["models"]
+forbidden_modules = ["cases", "adapters", "handlers", "boto3", "botocore", "aws_lambda_powertools"]
+
+# cases/ holds the business rules and reaches AWS only through ports.
+# allow_indirect_imports: cases log through common/logger.py, which uses
+# Powertools. Only a direct import of a forbidden module fails this rule.
+[[tool.importlinter.contracts]]
+name = "cases hold rules, with no AWS or HTTP"
+type = "forbidden"
+source_modules = ["cases"]
+forbidden_modules = ["adapters", "handlers", "boto3", "botocore", "aws_lambda_powertools"]
+allow_indirect_imports = true
+
+# handlers/ only translates HTTP to and from cases.
+[[tool.importlinter.contracts]]
+name = "handlers use cases, not adapters or AWS clients"
+type = "forbidden"
+source_modules = ["handlers"]
+forbidden_modules = ["adapters", "boto3", "botocore"]
+
+# adapters/ talk to AWS and know nothing about HTTP.
+[[tool.importlinter.contracts]]
+name = "adapters do not depend on handlers"
+type = "forbidden"
+source_modules = ["adapters"]
+forbidden_modules = ["handlers"]

@@ -1,0 +1,49 @@
+# Python project config for the render Lambda (render/).
+# Its only job is to create a PNG and store it in S3. It has no dependency on
+# backend/, which keeps business code out of this Lambda.
+
+# --- Project metadata and runtime dependencies --------------------------------
+# Everything in "dependencies" is packaged into the deployed Lambda.
+[project]
+name = "qr-manager-render"
+version = "0.1.0"
+description = "QR Manager PNG renderer (AWS Lambda, Python 3.14, arm64)"
+# Must match the Lambda runtime set in the CDK stack.
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "aws-lambda-powertools>=3,<4",  # Structured logging, same format as the API Lambda
+    "boto3>=1.34",                  # AWS SDK; left out of the bundle because Lambda provides it
+    "pillow>=13,<14",               # Draws the PNG
+    "qrcode>=8,<9",                 # Builds the QR module matrix
+]
+
+# --- Development-only tools ---------------------------------------------------
+# Used on your machine and in tests. Never packaged into the Lambda.
+[dependency-groups]
+dev = [
+    "pytest>=8",     # Test runner
+    "ruff>=0.6",     # Linter and import sorter
+    "zxing-cpp>=3",  # Decodes rendered PNGs to prove they scan
+]
+
+# --- uv settings --------------------------------------------------------------
+[tool.uv]
+# This is an application, not a library. The CDK bundling step copies src/
+# into the Lambda package, so uv doesn't need to build a wheel.
+package = false
+
+# --- Test settings ------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["src"]   # Lets tests import modules the same way the Lambda does
+testpaths = ["tests"]
+
+# --- Lint settings ------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src"]
+
+[tool.ruff.lint]
+# E/F: errors and bugs. I: import order. UP: modern syntax.
+# B: likely bugs. TID: import hygiene.
+select = ["E", "F", "I", "UP", "B", "TID"]

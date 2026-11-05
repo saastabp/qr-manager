@@ -121,7 +121,7 @@ erDiagram
 is mapped in the repository. The API shape (request and response schemas) is mapped in the handlers.
 A storage or API change does not touch the model.
 
-**Storage:** table `qr-manager-codes`, PK `code`, with GSI `by-owner` (`owner_sub`, `created_at`) for
+**Storage:** table `qr-manager-<env>-codes`, PK `code`, with GSI `by-owner` (`owner_sub`, `created_at`) for
 "my codes". On-demand, PITR, deletion protection, RETAIN. **DynamoDB is the source of truth.**
 KVS is a read projection of dynamic codes only (key `code`, value `final_url`).
 
@@ -161,8 +161,48 @@ flowchart LR
 | `qr-manager-Api` | DynamoDB table (RETAIN), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
 | `qr-manager-Analytics` | Glue table, Athena workgroup | Schema comes from a real log file; fixes must not touch Edge |
 
-Single environment, no sandbox. The function is protected by unit tests and
-`aws cloudfront test-function`.
+The names above are logical. Each environment deploys its own copy as `qr-manager-<env>-<Stack>`, for
+example `qr-manager-sandbox-Edge`.
+
+### Environments
+
+All four stacks live in one CDK `Stage` class, and each stack and named resource has an explicit name
+that includes the environment. `bin/app.ts` creates the stage twice, so both copies share one
+definition and differ only by config.
+
+| Setting | `sandbox` | `prod` |
+|---|---|---|
+| Domain | `qr-sandbox.360balancedliving.com` | `qr.360balancedliving.com` |
+| Cognito pool, KVS, table, buckets | Own copy | Own copy |
+| Removal policy | Destroy, no deletion protection | RETAIN, deletion protection |
+| Alarm emails | Off | On |
+
+Every change deploys to sandbox first, including the risky first checks in section 11. Sandbox has a
+real domain so test codes can be scanned with a phone. The CLI selects an environment with
+`--env sandbox`, and `prod` is the default. Deploys are by hand:
+`npx cdk deploy 'sandbox/*' --profile brian-admin`.
+
+Both copies are in the same account, so they share the CloudFront free tier. At this volume the
+sandbox should add almost nothing to the cost.
+
+### Later option: deployment pipeline
+
+**Not built.** Add it after Phase I is running. Because the stacks are already in a `Stage` with
+explicit names, adding it does not rename or replace anything.
+
+```mermaid
+flowchart LR
+    P[git push to main] --> S[CodePipeline, via existing GitHub connection]
+    S --> B[CodeBuild: tests and cdk synth]
+    B --> M[Pipeline updates itself if needed]
+    M --> SB[Deploy sandbox]
+    SB --> A[Manual approval]
+    A --> PR[Deploy prod]
+```
+
+This would use CDK Pipelines, in a `qr-manager-Pipeline` stack deployed by hand once. The build needs uv
+installed. The manual approval keeps prod deploys a deliberate decision. GitHub Actions would not
+trigger the pipeline; it would only run checks on pull requests.
 
 ### 5.1 Flow charts
 
@@ -372,20 +412,23 @@ business rule has a fast test with no AWS. `moto` covers the DynamoDB adapter on
 qr-manager/
   README.md  CLAUDE.md  .gitignore
   docs/  DESIGN.md  OPERATIONS.md  aws-architecture.drawio
-  infra/  bin/app.ts  lib/{config,edge-stack,auth-stack,api-stack,analytics-stack,python-lambda}.ts
+  infra/  bin/app.ts  lib/{config,stage,edge-stack,auth-stack,api-stack,analytics-stack,python-lambda}.ts
           lib/cloudfront-functions/redirect.js  test/
   backend/  pyproject.toml  uv.lock  tests/
   backend/src/  api_handler.py  bootstrap.py
                 models/  cases/  adapters/  handlers/  common/
   render/  pyproject.toml  uv.lock  tests/
   render/src/  render_handler.py  png_renderer.py  assets/
-  cli/  pyproject.toml  uv.lock  qr_admin.py  tests/
+  cli/  pyproject.toml  uv.lock  qr-admin  qr_admin.py  tests/
 ```
 
 `backend/`, `render/`, and `cli/` are separate uv projects. Each Lambda's `uv.lock` stays inside its
 own directory because CDK hashes that directory; a root lockfile would let a dependency bump skip the
 Lambda redeploy. The separate `render/` project keeps Pillow out of the API bundle and means render
 code cannot import business code.
+
+`cli/qr-admin` is a small shell wrapper that runs `qr_admin.py` through uv. uv is the only prerequisite,
+because it installs Python and the dependencies itself.
 
 ### Copied code
 
@@ -494,6 +537,9 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
 | PNG storage | Stored in S3 by a single-purpose render Lambda. The default PNG is rendered at creation, because a code with no PNG cannot be scanned |
 | Ready status | `live` or `static` only when the redirect is published (dynamic) and the default PNG exists |
 | Create call | Synchronous; `202` plus polling is kept as a later option in section 5 |
+| Environments | `sandbox` and `prod`, from one CDK `Stage` with explicit names |
+| Deployment | By hand for Phase I; CDK Pipelines is the later option in section 5, using the existing GitHub connection |
+| CLI language | Python run through uv with a shell wrapper; a pure shell script would still need `curl` and `jq` |
 | S3-triggered DynamoDB write | Rejected. The caller would lose the synchronous 409, failures would be silent, S3 events would still need idempotent writes, and business data would travel in object metadata |
 | SNS for returning results | Rejected. Scripts and browsers cannot subscribe, and a shared topic would break per-user isolation |
 
@@ -516,4 +562,5 @@ needed yet.
   Phase I relies on the 502 and the failure alarm; BC7 automates the repair in Phase II.
 - **A miss and a KVS failure look alike** to the function, and both go home. Check after deploy
   whether the error text separates them.
-- **Function deploys go live immediately**, hence the tests and the separate Edge stack.
+- **Function deploys go live immediately**, hence the tests, the separate Edge stack, and deploying to
+  sandbox first.

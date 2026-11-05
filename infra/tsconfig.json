@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    // Output: modern JavaScript, using the module style Node and CDK expect.
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "declaration": true,
+
+    // Strict checks: catch type mistakes at compile time, before a deploy.
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+
+    // Tidiness: reject unused code and missing return paths.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Tooling: keeps debugging and the test runner working.
+    "isolatedModules": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "experimentalDecorators": true,
+
+    // CDK classes assign properties in their constructors, so this check
+    // adds noise rather than safety.
+    "strictPropertyInitialization": false,
+
+    // Compatibility with libraries, and faster type checking.
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "typeRoots": ["./node_modules/@types"]
+  },
+
+  // Which files to compile. cdk.out holds generated templates, not source.
+  "include": ["bin/**/*.ts", "lib/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "cdk.out"],
+
+  // ts-node runs bin/app.ts directly when you run a cdk command.
+  "ts-node": {
+    "preferTsExts": true
+  }
+}
