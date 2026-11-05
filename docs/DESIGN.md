@@ -373,6 +373,19 @@ polling loop in both clients.
 SNS is not suitable for returning results: it pushes to endpoints such as email, SQS, Lambda, or a
 public HTTPS URL, so a script or browser cannot subscribe to it directly.
 
+### Later option: selectable logos
+
+**Not built.** A future UX may let users choose the logo in a QR code. `logo` is already a name passed
+through the API, the render Lambda, and the S3 key, so this does not need a redesign. It would need:
+
+- A list of logos stored outside the code, replacing `LOGO_VARIANTS` and the bundled asset files.
+- A `logo` field on `QrCode`, so the chosen logo replaces `DEFAULT_LOGO` at creation.
+- A rule that a logo name is never reused for a different image, because PNGs are stored by logo name
+  and changing the file behind a name would leave old PNGs in place.
+
+If users can upload their own logos, uploads also need checks, because a low-contrast logo or unusual
+file could stop a code scanning.
+
 ### Scan logging
 
 Standard logging v2 to S3 as JSON, under `qr-logs/year=/month=/day=`. Destination ARN is

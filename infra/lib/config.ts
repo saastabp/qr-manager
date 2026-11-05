@@ -26,6 +26,16 @@ export const HOSTED_ZONE = {
   zoneName: '360balancedliving.com',
 } as const;
 
+/**
+ * Sender for Cognito's invitations and password resets. The domain is already verified in
+ * SES in this account and region, so CDK references it and must never create it.
+ */
+export const AUTH_EMAIL = {
+  fromEmail: 'no-reply@360balancedliving.com',
+  fromName: 'QR Manager',
+  sesVerifiedDomain: '360balancedliving.com',
+} as const;
+
 /** What differs between environments. */
 export interface EnvConfig {
   /** Used in stack and resource names, for example qr-manager-sandbox-Edge. */

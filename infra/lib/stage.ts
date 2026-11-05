@@ -7,6 +7,8 @@
  */
 import { Stage, StageProps, Tags } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { ApiStack } from './api-stack';
+import { AuthStack } from './auth-stack';
 import { APP_NAME, EnvConfig, resourceName } from './config';
 import { EdgeStack } from './edge-stack';
 
@@ -22,9 +24,25 @@ export class QrManagerStage extends Stage {
 
     // stackName is set explicitly. Inside a Stage, the default name would include the
     // stage, and renaming a deployed stack makes CloudFormation treat it as a new one.
-    new EdgeStack(this, 'Edge', {
+    const edge = new EdgeStack(this, 'Edge', {
       stackName: resourceName(config, 'Edge'),
       config,
+    });
+
+    const auth = new AuthStack(this, 'Auth', {
+      stackName: resourceName(config, 'Auth'),
+      config,
+    });
+
+    // Passing resources between stacks creates cross-stack references, so CDK deploys
+    // Edge and Auth before this one.
+    new ApiStack(this, 'Api', {
+      stackName: resourceName(config, 'Api'),
+      config,
+      keyValueStore: edge.keyValueStore,
+      alertTopic: edge.alertTopic,
+      userPool: auth.userPool,
+      cliClient: auth.cliClient,
     });
 
     // Applied to every taggable resource, for filtering and cost tracking.
