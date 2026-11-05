@@ -52,7 +52,9 @@ effectively $0 at about 100 scans a week. Infrastructure is CDK. Coding guidelin
 
 ## 3. Business cases
 
-Each case is one module in `cases/`. Rules live here and nowhere else.
+Cases live in `cases/`, and rules live there and nowhere else. Most cases are one module. BC5 has no
+module of its own, because it is `change_code` with nothing to change. The steps that finish a code are
+shared in `completion.py`.
 
 | Case | Function | Rules |
 |---|---|---|
@@ -122,7 +124,8 @@ is mapped in the repository. The API shape (request and response schemas) is map
 A storage or API change does not touch the model.
 
 **Storage:** table `qr-manager-<env>-codes`, PK `code`, with GSI `by-owner` (`owner_sub`, `created_at`) for
-"my codes". On-demand, PITR, deletion protection, RETAIN. **DynamoDB is the source of truth.**
+"my codes". On-demand in both environments; PITR, deletion protection, and RETAIN in prod only.
+**DynamoDB is the source of truth.**
 KVS is a read projection of dynamic codes only (key `code`, value `final_url`).
 
 ## 5. Architecture
@@ -157,8 +160,8 @@ flowchart LR
 | Stack (CDK TypeScript) | Contents | Why separate |
 |---|---|---|
 | `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, KVS failure alarm, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
-| `qr-manager-Auth` | Invite-only pool (RETAIN), SES email, `qr-cli` client (`disableOAuth: true`) | Holds identities |
-| `qr-manager-Api` | DynamoDB table (RETAIN), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
+| `qr-manager-Auth` | Invite-only pool (RETAIN in prod), SES email, `qr-manager-<env>-cli` client (`disableOAuth: true`) | Holds identities |
+| `qr-manager-Api` | DynamoDB table (RETAIN in prod), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
 | `qr-manager-Analytics` | Glue database and table, Athena workgroup `qr_analytics_<env>` | Schema comes from a real log file; fixes must not touch Edge |
 
 The names above are logical. Each environment deploys its own copy as `qr-manager-<env>-<Stack>`, for
@@ -173,8 +176,10 @@ definition and differ only by config.
 | Setting | `sandbox` | `prod` |
 |---|---|---|
 | Domain | `qr-sandbox.360balancedliving.com` | `qr.360balancedliving.com` |
-| Cognito pool, KVS, table, buckets | Own copy | Own copy |
+| Cognito pool, KVS, table, buckets, Athena workgroup | Own copy | Own copy |
 | Removal policy | Destroy, no deletion protection | RETAIN, deletion protection |
+| DynamoDB PITR | Off | On |
+| CloudWatch log retention | 1 month | 3 months |
 | Alarm emails | Off | On |
 
 Every change deploys to sandbox first, including the risky first checks in section 11. Sandbox has a
@@ -317,7 +322,7 @@ Viewer-request function, JS runtime 2.0, using `cf.kvs()` with no ID. It checks 
 before reading KVS, so `/favicon.ico` and scanner noise skip the lookup. The whole handler is wrapped
 so any failure still returns a 302 to the home page, never a 5xx. It sets `cache-control: no-store`.
 `cf.logCustomData` records `<code>:<hit|fallback|invalid|home>`. Athena takes the code from
-`cs-uri-stem`, because custom data is absent at embedded POPs.
+`cs-uri-stem`, because custom data can be absent at embedded POPs.
 
 ### Publishing to KVS
 
@@ -440,16 +445,21 @@ flowchart TD
 | Layer | Contains | Must not contain |
 |---|---|---|
 | `models/` | Data shapes and structural validity | Rules, workflows, permissions, I/O, AWS or HTTP types |
-| `cases/` | One module per business case, `policies.py`, `ports.py`, `errors.py` | boto3, HTTP types, DynamoDB item shapes |
+| `cases/` | Business case modules, `completion.py`, `redirect_url.py`, `policies.py`, `ports.py`, `errors.py` | boto3, HTTP types, DynamoDB item shapes |
 | `adapters/` | `dynamodb_codes.py`, `kvs_publisher.py`, `s3_images.py`, `render_invoker.py`; item-to-model mapping | Business rules |
 | `handlers/` | Routes, request and response schemas, error-to-status mapping | Business rules, AWS clients |
 | `bootstrap.py` | Wires adapters into cases | Everything else |
 | `common/` | Logger, correlation ID | Domain knowledge |
 | `render/` (separate project) | Render handler, PNG drawing, logo assets | Anything from `backend/`: models, cases, DynamoDB |
 
-**Enforced, not just documented.** An `import-linter` contract fails the build if `models` imports
-anything from the other layers, or if `cases` imports `adapters`, `handlers`, `boto3`, or Powertools
-HTTP types.
+**Enforced, not just documented.** Four `import-linter` contracts make `uv run lint-imports` fail if a
+layer imports something it must not:
+
+- `models` must not import `cases`, `adapters`, `handlers`, the AWS SDK, or Powertools.
+- `cases` must not directly import `adapters`, `handlers`, the AWS SDK, or Powertools. Indirect imports
+  are allowed, because cases log through `common/logger.py`, which uses Powertools.
+- `handlers` must not import `adapters` or the AWS SDK.
+- `adapters` must not import `handlers`.
 
 **Testing follows the layers.** Cases are tested with in-memory fakes of the ports, so every
 business rule has a fast test with no AWS. `moto` covers the DynamoDB adapter only.
@@ -511,7 +521,8 @@ All routes sit behind the JWT authorizer, and this contract serves both the scri
 | `PATCH /codes/{code}` | BC2 | Updated code; 404 if not the caller's. An empty body finishes any incomplete step and republishes |
 | `GET /codes/{code}/image?logo=full` | BC4 | `{ "url": "<presigned>", "expires_in": 300 }`; 404 if not the caller's; 409 while `pending`; 502 if rendering fails |
 
-BC5 needs no route of its own in Phase I: `qr-admin resync` sends an empty `PATCH` per code.
+BC5 needs no route of its own in Phase I: `qr-admin resync` sends an empty `PATCH` per code, and
+`qr-admin update <code>` with no options does the same for one code.
 
 ```json
 {
@@ -557,8 +568,8 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
 
 ## 9. Security and logging
 
-- **Auth:** invite-only pool. The script uses `USER_PASSWORD_AUTH` on `qr-cli`, prompted with
-  `getpass`, and sends the ID token, because access tokens have no `email` claim. Tokens are cached in
+- **Auth:** invite-only pool. The script uses `USER_PASSWORD_AUTH` on the `qr-manager-<env>-cli` client,
+  prompted with `getpass`, and sends the ID token, because access tokens have no `email` claim. Tokens are cached in
   `~/.config/qr-manager/tokens-<env>.json` with mode 0600. The first user is created with
   `admin-create-user` and `admin-set-user-password --permanent`.
 - **API logging:** pairable entry and exit logs with correlation ID and `duration_ms`; the error body
@@ -613,5 +624,7 @@ needed yet.
   Phase I relies on the 502 and the failure alarm; BC7 automates the repair in Phase II.
 - **A real KVS read failure has not been observed.** Both a miss and a failure go home. A miss logs
   `Error: KeyNotFound`, confirmed in sandbox, so anything else is treated as a failure.
+- **Failure paths are proven by tests, not on real AWS.** No real publish or render failure has happened
+  in sandbox, so the `step-failures` alarm has not fired, and the prod alarm email has not been received.
 - **Function deploys go live immediately**, hence the tests, the separate Edge stack, and deploying to
   sandbox first.

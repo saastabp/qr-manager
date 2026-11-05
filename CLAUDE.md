@@ -28,10 +28,10 @@ Static and dynamic QR codes for 360 Balanced Living. Read `docs/DESIGN.md` befor
 ## Checks
 
 ```bash
-cd infra && npx tsc --noEmit && npx jest
-cd backend && uv run pytest && uv run ruff check && uv run lint-imports
-cd render && uv run pytest && uv run ruff check
-cd cli && uv run pytest && uv run ruff check
+(cd infra && npx tsc --noEmit && npx jest)
+(cd backend && uv run pytest && uv run ruff check && uv run lint-imports)
+(cd render && uv run pytest && uv run ruff check)
+(cd cli && uv run pytest && uv run ruff check)
 ```
 
 Re-export the AWS schematic after changing it:

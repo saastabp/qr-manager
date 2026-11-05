@@ -28,7 +28,10 @@ live as soon as the deploy finishes.
 ## Adding a user
 
 Users are created by hand until Phase II. The password is set directly because `qr-admin login` does not
-handle the forced password change that an invitation requires.
+handle the forced password change that an invitation requires. Passwords need at least 8 characters, with
+upper and lower case letters, a digit, and a symbol.
+
+Do not turn on MFA for a user of `qr-admin`. The pool allows it, but `login` does not handle the challenge.
 
 ```bash
 POOL_ID=$(jq -r '."qr-manager-sandbox-Auth".UserPoolId' infra/outputs-sandbox.json)
@@ -143,6 +146,7 @@ step is safe.
 ```bash
 cli/qr-admin --env sandbox resync          # finish every pending code
 cli/qr-admin --env sandbox resync --all    # republish every code you own
+cli/qr-admin --env sandbox update my-code  # no options: finish or republish one code
 ```
 
 A code changed while `pending` keeps sending scans to its old destination until this succeeds. This matters
@@ -154,6 +158,6 @@ most when retracting a URL, so check `list` afterwards.
 
 - **API:** every error shows a correlation ID. Search for it in `/aws/lambda/qr-manager-<env>-api` and
   `/aws/lambda/qr-manager-<env>-render`.
-- **Scan:** the function's log line and the access log share `request_id`, the access log's
-  `x-edge-request-id`. CloudFront prefixes each function log line with the request ID, so that line is not
-  valid JSON and needs text matching in CloudWatch.
+- **Scan:** the `request_id` column in Athena matches the `request_id` in the function's log line.
+  CloudFront prefixes each function log line with the request ID, so that line is not valid JSON and needs
+  text matching in CloudWatch.

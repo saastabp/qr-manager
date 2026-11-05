@@ -30,6 +30,7 @@ UI. Both are thin clients of the same API, and every business rule stays on the 
 
 - [uv](https://docs.astral.sh/uv/), which installs Python and the Python dependencies
 - Node.js, for CDK
+- jq, for the user commands in `docs/OPERATIONS.md`
 - AWS access through the `brian-admin` profile: `aws sso login --profile brian-admin`
 
 ## Using `qr-admin`
@@ -55,14 +56,14 @@ parameters. Codes are never deleted: to retire a dynamic code, point it at the h
 
 ```bash
 # Infrastructure
-cd infra && npm ci && npx tsc --noEmit && npx jest
+(cd infra && npm ci && npx tsc --noEmit && npx jest)
 
 # API Lambda, including the layer rules
-cd backend && uv run pytest && uv run ruff check && uv run lint-imports
+(cd backend && uv run pytest && uv run ruff check && uv run lint-imports)
 
 # Render Lambda and client
-cd render && uv run pytest && uv run ruff check
-cd cli && uv run pytest && uv run ruff check
+(cd render && uv run pytest && uv run ruff check)
+(cd cli && uv run pytest && uv run ruff check)
 ```
 
 Do not run `npm audit fix --force`. The reported findings are in build-time tools, and forcing a fix can

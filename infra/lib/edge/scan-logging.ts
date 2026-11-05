@@ -41,7 +41,7 @@ export interface ScanLoggingProps {
 }
 
 export class ScanLogging extends Construct {
-  // Public because the Analytics stack will query this bucket.
+  // Public because the Analytics stack queries this bucket.
   readonly bucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: ScanLoggingProps) {
