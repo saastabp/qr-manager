@@ -76,6 +76,9 @@ Open Athena in us-east-1 and select the workgroup for the environment.
 | Sandbox | `qr_analytics_sandbox` | `qr_manager_sandbox` |
 | Prod | `qr_analytics_prod` | `qr_manager_prod` |
 
+The workgroup does not choose the data. The database in `FROM` does, so a prod workgroup querying
+`qr_manager_sandbox` returns sandbox rows.
+
 Each database has two objects. Use `scans` for reporting, and `scan_logs` only to look at noise or
 troubleshoot.
 
