@@ -7,6 +7,7 @@
  */
 import { Stage, StageProps, Tags } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { AnalyticsStack } from './analytics-stack';
 import { ApiStack } from './api-stack';
 import { AuthStack } from './auth-stack';
 import { APP_NAME, EnvConfig, resourceName } from './config';
@@ -43,6 +44,12 @@ export class QrManagerStage extends Stage {
       alertTopic: edge.alertTopic,
       userPool: auth.userPool,
       cliClient: auth.cliClient,
+    });
+
+    new AnalyticsStack(this, 'Analytics', {
+      stackName: resourceName(config, 'Analytics'),
+      config,
+      logBucket: edge.logBucket,
     });
 
     // Applied to every taggable resource, for filtering and cost tracking.
