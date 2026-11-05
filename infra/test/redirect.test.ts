@@ -12,6 +12,9 @@ import * as vm from 'vm';
 const HOME_PAGE = 'https://360balancedliving.com/';
 const FINAL_URL = 'https://360balancedliving.com/bldc?utm_source=qr';
 
+/** A KVS value, as the backend publishes it. */
+const ENTRY = JSON.stringify({ url: FINAL_URL, campaign: 'bldc' });
+
 const SOURCE_PATH = path.join(__dirname, '..', 'lib', 'cloudfront-functions', 'redirect.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 
@@ -72,18 +75,47 @@ function eventFor(uri: string) {
 }
 
 describe('redirect function', () => {
+  it('avoids await inside call arguments, which the CloudFront runtime rejects', () => {
+    expect(SOURCE).not.toMatch(/\(\s*await\b/);
+  });
+
   it('sends a known code to its final URL', async () => {
-    const { handler, customData } = load({ 'bldc-flyer': FINAL_URL });
+    const { handler, customData } = load({ 'bldc-flyer': ENTRY });
 
     const response = await handler(eventFor('/bldc-flyer'));
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location.value).toBe(FINAL_URL);
-    expect(customData).toEqual(['bldc-flyer:hit']);
+    expect(customData).toEqual(['bldc-flyer:bldc:hit']);
+  });
+
+  it('logs an empty campaign when a code has none', async () => {
+    const { handler, customData } = load({
+      'one-off': JSON.stringify({ url: FINAL_URL, campaign: '' }),
+    });
+
+    await handler(eventFor('/one-off'));
+
+    expect(customData).toEqual(['one-off::hit']);
+  });
+
+  it.each([
+    ['cannot be parsed', 'https://example.com/plain-url'],
+    ['has no url', JSON.stringify({ campaign: 'bldc' })],
+  ])('sends a code home when its value %s, with an error the alarm sees', async (_name, value) => {
+    const { handler, customData, logs } = load({ 'bldc-flyer': value });
+
+    const response = await handler(eventFor('/bldc-flyer'));
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location.value).toBe(HOME_PAGE);
+    expect(customData).toEqual(['bldc-flyer::fallback']);
+    expect(JSON.parse(logs[0]).error).not.toBe('');
+    expect(JSON.parse(logs[0]).error).not.toContain('KeyNotFound');
   });
 
   it.each(['/BLDC-Flyer', '/bldc-flyer/', '//bldc-flyer//'])('normalises %s', async (uri) => {
-    const { handler } = load({ 'bldc-flyer': FINAL_URL });
+    const { handler } = load({ 'bldc-flyer': ENTRY });
 
     const response = await handler(eventFor(uri));
 
@@ -97,7 +129,7 @@ describe('redirect function', () => {
 
     expect(response.headers.location.value).toBe(HOME_PAGE);
     expect(reads).toEqual([]);
-    expect(customData).toEqual(['-:home']);
+    expect(customData).toEqual(['-::home']);
   });
 
   it.each(['/favicon.ico', '/a/b', '/-bad', '/bad-', `/${'a'.repeat(65)}`])(
@@ -120,11 +152,11 @@ describe('redirect function', () => {
     const response = await handler(eventFor('/no-such-code'));
 
     expect(response.headers.location.value).toBe(HOME_PAGE);
-    expect(customData).toEqual(['no-such-code:fallback']);
+    expect(customData).toEqual(['no-such-code::fallback']);
   });
 
   it('still redirects when KVS fails, and logs the error', async () => {
-    const { handler, logs } = load({ 'bldc-flyer': FINAL_URL }, { kvsFails: true });
+    const { handler, logs } = load({ 'bldc-flyer': ENTRY }, { kvsFails: true });
 
     const response = await handler(eventFor('/bldc-flyer'));
 
@@ -140,11 +172,11 @@ describe('redirect function', () => {
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location.value).toBe(HOME_PAGE);
-    expect(customData).toEqual(['-:fallback']);
+    expect(customData).toEqual(['-::fallback']);
   });
 
   it('still redirects when logging fails', async () => {
-    const { handler } = load({ 'bldc-flyer': FINAL_URL }, { loggingFails: true });
+    const { handler } = load({ 'bldc-flyer': ENTRY }, { loggingFails: true });
 
     const response = await handler(eventFor('/bldc-flyer'));
 
@@ -152,7 +184,7 @@ describe('redirect function', () => {
   });
 
   it('never lets a redirect be cached', async () => {
-    const { handler } = load({ 'bldc-flyer': FINAL_URL });
+    const { handler } = load({ 'bldc-flyer': ENTRY });
 
     const response = await handler(eventFor('/bldc-flyer'));
 
@@ -160,7 +192,7 @@ describe('redirect function', () => {
   });
 
   it('logs one pairable line per request', async () => {
-    const { handler, logs } = load({ 'bldc-flyer': FINAL_URL });
+    const { handler, logs } = load({ 'bldc-flyer': ENTRY });
 
     await handler(eventFor('/bldc-flyer'));
 
@@ -168,6 +200,7 @@ describe('redirect function', () => {
     expect(JSON.parse(logs[0])).toEqual({
       request_id: 'request-1',
       code: 'bldc-flyer',
+      campaign: 'bldc',
       outcome: 'hit',
       error: '',
     });
@@ -178,6 +211,6 @@ describe('redirect function', () => {
 
     await handler(eventFor(`/${'a'.repeat(200)}`));
 
-    expect(customData[0]).toBe(`${'a'.repeat(64)}:invalid`);
+    expect(customData[0]).toBe(`${'a'.repeat(64)}::invalid`);
   });
 });

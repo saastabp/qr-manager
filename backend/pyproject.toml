@@ -50,7 +50,7 @@ src = ["src"]
 select = ["E", "F", "I", "UP", "B", "TID"]
 
 # --- Code segregation rules (docs/DESIGN.md, section 6) -----------------------
-# "uv run lint-imports" fails if any layer imports something it must not.
+# "PYTHONPATH=src uv run lint-imports" fails if any layer imports something it must not.
 [tool.importlinter]
 root_packages = ["models", "cases", "adapters", "handlers", "common"]
 # Needed so the rules below can name third-party packages such as boto3.

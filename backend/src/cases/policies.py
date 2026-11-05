@@ -18,8 +18,13 @@ from models.qr_code import CODE_PATTERN, CodeKind, CodeStatus, QrCode
 #: Names kept free for possible future routes on the redirect domain.
 RESERVED_CODES = frozenset({"admin", "api", "health"})
 
-#: The KeyValueStore limit for one value.
-MAX_FINAL_URL_BYTES = 1024
+#: Room for the campaign and JSON, within the KeyValueStore's 1 KB limit for one value.
+MAX_FINAL_URL_BYTES = 900
+
+#: Shown when a code or campaign does not follow the shared name format.
+NAME_FORMAT_MESSAGE = (
+    "Use 1 to 64 lowercase letters, digits, or hyphens, not starting or ending in a hyphen"
+)
 
 
 def code_name_errors(code: str) -> list[FieldError]:
@@ -36,11 +41,7 @@ def code_name_errors(code: str) -> list[FieldError]:
         Any problems found; empty if the name is acceptable.
     """
     if not re.fullmatch(CODE_PATTERN, code):
-        message = (
-            "Use 1 to 64 lowercase letters, digits, or hyphens, "
-            "not starting or ending in a hyphen"
-        )
-        return [FieldError("code", message)]
+        return [FieldError("code", NAME_FORMAT_MESSAGE)]
 
     if code in RESERVED_CODES:
         return [FieldError("code", "Code is reserved")]
@@ -64,6 +65,36 @@ def destination_errors(destination: str) -> list[FieldError]:
     parts = urlsplit(destination)
     if parts.scheme != "https" or not parts.netloc:
         return [FieldError("destination", "Destination must be a full https URL")]
+
+    return []
+
+
+def campaign_errors(campaign: str) -> list[FieldError]:
+    """Check a campaign name.
+
+    Campaigns follow the code format, which keeps them safe in the scan log format.
+
+    Parameters
+    ----------
+    campaign : str
+        The proposed campaign. Blank means no campaign.
+
+    Returns
+    -------
+    list[FieldError]
+        Any problems found; empty if the campaign is acceptable.
+
+    Examples
+    --------
+    >>> campaign_errors("spring-2027")
+    []
+    >>> campaign_errors("")
+    []
+    >>> campaign_errors("Spring 2027")[0].field
+    'campaign'
+    """
+    if campaign and not re.fullmatch(CODE_PATTERN, campaign):
+        return [FieldError("campaign", NAME_FORMAT_MESSAGE)]
 
     return []
 

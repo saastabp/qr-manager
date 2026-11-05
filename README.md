@@ -59,7 +59,7 @@ parameters. Codes are never deleted: to retire a dynamic code, point it at the h
 (cd infra && npm ci && npx tsc --noEmit && npx jest)
 
 # API Lambda, including the layer rules
-(cd backend && uv run pytest && uv run ruff check && uv run lint-imports)
+(cd backend && uv run pytest && uv run ruff check && PYTHONPATH=src uv run lint-imports)
 
 # Render Lambda and client
 (cd render && uv run pytest && uv run ruff check)

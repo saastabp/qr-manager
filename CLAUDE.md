@@ -8,12 +8,16 @@ Static and dynamic QR codes for 360 Balanced Living. Read `docs/DESIGN.md` befor
 - **No business logic in clients.** `qr-admin` and the Phase II UI display what the API returns. Rules live
   in `backend/src/cases/`.
 - **Layers are enforced.** `models/` holds data shapes only. `cases/` must not import `adapters`,
-  `handlers`, `boto3`, or HTTP types. Run `uv run lint-imports` in `backend/`.
+  `handlers`, `boto3`, or HTTP types. Run `PYTHONPATH=src uv run lint-imports` in `backend/`.
 - **`render/` stays separate.** It must not import anything from `backend/`.
 - **`speaker-tracker` and `ghl` are copy sources only.** Never import from them or depend on them.
 - **Codes are never deleted.** There is no delete case and no DELETE route.
 - **DynamoDB is the source of truth.** KVS is a read projection of dynamic codes.
 - **The redirect function always returns a 302.** A printed code must never show an error page.
+- **The CloudFront runtime is stricter than Node.** Jest passing does not prove `redirect.js` loads. For
+  example, `await` inside call arguments breaks every scan. Run `aws cloudfront test-function` after every
+  Edge deploy; see `docs/OPERATIONS.md`.
+- **Campaigns and code names share one format.** The scan log format, `code:campaign:outcome`, relies on it.
 
 ## CDK
 
@@ -29,7 +33,7 @@ Static and dynamic QR codes for 360 Balanced Living. Read `docs/DESIGN.md` befor
 
 ```bash
 (cd infra && npx tsc --noEmit && npx jest)
-(cd backend && uv run pytest && uv run ruff check && uv run lint-imports)
+(cd backend && uv run pytest && uv run ruff check && PYTHONPATH=src uv run lint-imports)
 (cd render && uv run pytest && uv run ruff check)
 (cd cli && uv run pytest && uv run ruff check)
 ```

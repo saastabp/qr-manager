@@ -1,8 +1,9 @@
 /**
- * Alerts: tells the owner when the redirect function cannot read KVS.
+ * Alerts: tells the owner when scans stop working properly.
  *
- * The redirect function turns every failure into a redirect, so a function-errors alarm
- * would never fire. This counts failed lookups in the function's log lines instead.
+ * Two different failures need two alarms. If the function runs but cannot read KVS, it
+ * still redirects, so only its log lines show the problem. If the function cannot run at
+ * all, it writes no logs and scans get a 503, so only CloudFront's metrics show that.
  * A missing key is not a failure: bots probing paths such as /wp-login cause those.
  * See docs/DESIGN.md, section 9.
  */
@@ -65,5 +66,35 @@ export class Alerts extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     failureAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.topic));
+
+    // --- Function failure alarm ---------------------------------------------------
+    // CloudFront publishes these metrics itself. FILL treats a period with no data as
+    // zero, so one metric being absent does not hide the other.
+    const functionMetric = (metricName: string): cloudwatch.Metric =>
+      new cloudwatch.Metric({
+        namespace: 'AWS/CloudFront',
+        metricName,
+        dimensionsMap: { FunctionName: resourceName(config, 'redirect'), Region: 'Global' },
+        statistic: 'Sum',
+        period: Duration.minutes(5),
+      });
+
+    const functionAlarm = new cloudwatch.Alarm(this, 'FunctionFailureAlarm', {
+      alarmName: resourceName(config, 'function-errors'),
+      alarmDescription: 'The redirect function could not run, so scans are getting a 503',
+      metric: new cloudwatch.MathExpression({
+        expression: 'FILL(errors, 0) + FILL(throttles, 0)',
+        usingMetrics: {
+          errors: functionMetric('FunctionExecutionErrors'),
+          throttles: functionMetric('FunctionThrottles'),
+        },
+        period: Duration.minutes(5),
+      }),
+      threshold: FAILURE_THRESHOLD,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    functionAlarm.addAlarmAction(new cloudwatchActions.SnsAction(this.topic));
   }
 }

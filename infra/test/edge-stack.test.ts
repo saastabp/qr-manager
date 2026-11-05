@@ -89,6 +89,32 @@ describe.each([
       TreatMissingData: 'notBreaching',
     });
   });
+
+  it('alarms when the function cannot run, which writes no logs', () => {
+    const metricFor = (metricName: string) =>
+      Match.objectLike({
+        MetricStat: Match.objectLike({
+          Metric: Match.objectLike({
+            Namespace: 'AWS/CloudFront',
+            MetricName: metricName,
+            Dimensions: Match.arrayWith([
+              { Name: 'FunctionName', Value: `qr-manager-${config.envName}-redirect` },
+              { Name: 'Region', Value: 'Global' },
+            ]),
+          }),
+        }),
+      });
+
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: `qr-manager-${config.envName}-function-errors`,
+      Threshold: 1,
+      AlarmActions: [Match.anyValue()],
+      Metrics: Match.arrayWith([
+        metricFor('FunctionExecutionErrors'),
+        metricFor('FunctionThrottles'),
+      ]),
+    });
+  });
 });
 
 describe('environment differences', () => {

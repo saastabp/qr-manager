@@ -97,7 +97,7 @@ class RedirectStore(ABC):
     """The store the redirect function reads from."""
 
     @abstractmethod
-    def publish(self, code: str, final_url: str) -> None:
+    def publish(self, code: str, final_url: str, campaign: str) -> None:
         """Make a code redirect to a URL.
 
         Parameters
@@ -106,6 +106,8 @@ class RedirectStore(ABC):
             The code name.
         final_url : str
             Where the code should redirect.
+        campaign : str
+            The code's campaign, logged with each scan. Blank means none.
 
         Raises
         ------

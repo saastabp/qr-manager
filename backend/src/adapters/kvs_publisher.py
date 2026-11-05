@@ -7,6 +7,7 @@ which boto3 does through the awscrt package. See docs/DESIGN.md, section 5.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -34,7 +35,7 @@ class KvsRedirectStore(RedirectStore):
         self._client = client
         self._kvs_arn = kvs_arn
 
-    def publish(self, code: str, final_url: str) -> None:
+    def publish(self, code: str, final_url: str, campaign: str) -> None:
         """Make a code redirect to a URL.
 
         Parameters
@@ -43,18 +44,22 @@ class KvsRedirectStore(RedirectStore):
             The code name.
         final_url : str
             Where the code should redirect.
+        campaign : str
+            The code's campaign, logged with each scan. Blank means none.
 
         Raises
         ------
         ConnectionError
             If the store cannot be updated after retrying.
         """
+        # The redirect function reads this. See docs/DESIGN.md, section 4.
+        value = json.dumps({"url": final_url, "campaign": campaign}, separators=(",", ":"))
         start = time.monotonic()
 
         for attempt in range(1, MAX_CONFLICT_RETRIES + 1):
             try:
                 etag = self._client.describe_key_value_store(KvsARN=self._kvs_arn)["ETag"]
-                self._client.put_key(KvsARN=self._kvs_arn, Key=code, Value=final_url, IfMatch=etag)
+                self._client.put_key(KvsARN=self._kvs_arn, Key=code, Value=value, IfMatch=etag)
             except ClientError as error:
                 if error.response["Error"]["Code"] != "ConflictException":
                     raise ConnectionError("KVS write failed") from error

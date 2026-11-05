@@ -64,16 +64,18 @@ class FakeRedirects(RedirectStore):
 
     def __init__(self) -> None:
         self.published: dict[str, str] = {}
+        self.campaigns: dict[str, str] = {}
         self.calls = 0
         self.fail = False
 
-    def publish(self, code: str, final_url: str) -> None:
+    def publish(self, code: str, final_url: str, campaign: str) -> None:
         """Record a publish, or fail if told to."""
         self.calls += 1
         if self.fail:
             raise ConnectionError("KVS unavailable")
 
         self.published[code] = final_url
+        self.campaigns[code] = campaign
 
 
 class FakeImages(ImageStore):

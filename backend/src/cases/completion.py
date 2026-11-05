@@ -103,7 +103,7 @@ def _publish_if_needed(code: QrCode, deps: Dependencies, *, republish: bool) -> 
         return True
 
     try:
-        deps.redirects.publish(code.code, code.final_url)
+        deps.redirects.publish(code.code, code.final_url, code.campaign)
     except ConnectionError:
         logger.exception("Publish failed code=%s version=%s", code.code, code.version)
         raise StepFailed("publish") from None

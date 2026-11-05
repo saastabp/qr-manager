@@ -27,23 +27,40 @@ async function resolve(uri) {
   const code = uri.replace(/^\/+|\/+$/g, '').toLowerCase();
 
   if (code === '') {
-    return { code: '-', location: HOME_PAGE, outcome: 'home', error: '' };
+    return { code: '-', location: HOME_PAGE, campaign: '', outcome: 'home', error: '' };
   }
   if (!CODE_FORMAT.test(code)) {
-    return { code: code, location: HOME_PAGE, outcome: 'invalid', error: '' };
+    return { code: code, location: HOME_PAGE, campaign: '', outcome: 'invalid', error: '' };
   }
 
-  // get() throws for a missing key as well as for a read failure.
+  // get() throws for a missing key as well as for a read failure. A value that cannot
+  // be parsed also lands here, so it goes home and raises the alarm.
   try {
-    const location = await kvs.get(code);
-    return { code: code, location: location, outcome: 'hit', error: '' };
+    const value = await kvs.get(code);
+    const entry = JSON.parse(value);
+    if (!entry.url) {
+      throw new Error('KVS value has no url');
+    }
+    return {
+      code: code,
+      location: entry.url,
+      campaign: entry.campaign || '',
+      outcome: 'hit',
+      error: '',
+    };
   } catch (err) {
-    return { code: code, location: HOME_PAGE, outcome: 'fallback', error: String(err) };
+    return {
+      code: code,
+      location: HOME_PAGE,
+      campaign: '',
+      outcome: 'fallback',
+      error: String(err),
+    };
   }
 }
 
 async function handler(event) {
-  let result = { code: '-', location: HOME_PAGE, outcome: 'fallback', error: '' };
+  let result = { code: '-', location: HOME_PAGE, campaign: '', outcome: 'fallback', error: '' };
 
   try {
     result = await resolve(event.request.uri);
@@ -55,12 +72,13 @@ async function handler(event) {
   try {
     const code = result.code.substring(0, MAX_LOGGED_LENGTH);
     // Goes to the access log, in the viewer-request-log-data field.
-    cf.logCustomData(code + ':' + result.outcome);
+    cf.logCustomData(code + ':' + result.campaign + ':' + result.outcome);
     // Goes to CloudWatch. Date is frozen in this runtime, so duration cannot be
     // measured here; the access log's time-taken field covers it instead.
     console.log(JSON.stringify({
       request_id: event.context.requestId,
       code: code,
+      campaign: result.campaign,
       outcome: result.outcome,
       error: result.error,
     }));

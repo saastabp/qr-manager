@@ -145,21 +145,28 @@ class TestKvsRedirectStore:
     def test_publish_writes_with_the_current_etag(self):
         client = FakeKvsClient()
 
-        KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com")
+        KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
         assert client.puts == [
             {
                 "KvsARN": "arn",
                 "Key": "bldc-flyer",
-                "Value": "https://example.com",
+                "Value": '{"url":"https://example.com","campaign":"bldc"}',
                 "IfMatch": "etag-1",
             }
         ]
 
+    def test_a_blank_campaign_is_stored_blank(self):
+        client = FakeKvsClient()
+
+        KvsRedirectStore(client, "arn").publish("one-off", "https://example.com", "")
+
+        assert client.puts[0]["Value"] == '{"url":"https://example.com","campaign":""}'
+
     def test_a_conflict_retries_with_a_fresh_etag(self):
         client = FakeKvsClient([client_error("ConflictException")])
 
-        KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com")
+        KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
         assert client.puts[0]["IfMatch"] == "etag-2"
 
@@ -167,13 +174,13 @@ class TestKvsRedirectStore:
         client = FakeKvsClient([client_error("ConflictException")] * 3)
 
         with pytest.raises(ConnectionError):
-            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com")
+            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
     def test_access_denied_is_not_retried(self):
         client = FakeKvsClient([client_error("AccessDeniedException")])
 
         with pytest.raises(ConnectionError):
-            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com")
+            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
         assert client.etags == 1
 
@@ -181,7 +188,7 @@ class TestKvsRedirectStore:
         client = FakeKvsClient([EndpointConnectionError(endpoint_url="https://kvs")])
 
         with pytest.raises(ConnectionError):
-            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com")
+            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
 
 class FakeS3Client:

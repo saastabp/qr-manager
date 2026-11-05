@@ -75,6 +75,7 @@ def change_code(request: ChangeCodeRequest, actor: Actor, deps: Dependencies) ->
     _reject_static_url_change(existing, destination, campaign)
 
     errors = policies.destination_errors(destination)
+    errors += policies.campaign_errors(campaign)
     if errors:
         raise InvalidInput(errors)
 

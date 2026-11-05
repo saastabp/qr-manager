@@ -101,6 +101,7 @@ def _validated_final_url(request: CreateCodeRequest) -> str:
     """Apply the input rules and return the final URL."""
     errors = policies.code_name_errors(request.code)
     errors += policies.destination_errors(request.destination)
+    errors += policies.campaign_errors(request.campaign)
     if errors:
         raise InvalidInput(errors)
 

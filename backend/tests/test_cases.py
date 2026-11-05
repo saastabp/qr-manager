@@ -88,6 +88,35 @@ class TestCreate:
         with pytest.raises(InvalidInput):
             create_code(CreateCodeRequest("ok", CodeKind.DYNAMIC, long_url), OWNER, world.deps)
 
+    def test_final_url_limit_is_900_bytes(self, world):
+        prefix = "https://example.com/"
+        longest = f"{prefix}{'a' * (900 - len(prefix))}"
+
+        create_code(CreateCodeRequest("fits", CodeKind.DYNAMIC, longest), OWNER, world.deps)
+
+        with pytest.raises(InvalidInput):
+            too_long = CreateCodeRequest("over", CodeKind.DYNAMIC, f"{longest}a")
+            create_code(too_long, OWNER, world.deps)
+
+    @pytest.mark.parametrize(
+        "campaign", ["Spring", "spring 2027", "a:b", "-bad", "bad-", "a" * 65]
+    )
+    def test_badly_formed_campaigns_are_refused(self, world, campaign):
+        with pytest.raises(InvalidInput) as caught:
+            create_code(dynamic(campaign=campaign), OWNER, world.deps)
+
+        assert caught.value.errors[0].field == "campaign"
+
+    def test_a_blank_campaign_is_allowed(self, world):
+        code, _ = create_code(dynamic(campaign=""), OWNER, world.deps)
+
+        assert code.campaign == ""
+
+    def test_the_campaign_is_published_with_the_code(self, world):
+        create_code(dynamic(campaign="spring-2027"), OWNER, world.deps)
+
+        assert world.redirects.campaigns["bldc-flyer"] == "spring-2027"
+
     def test_a_taken_name_conflicts(self, world):
         create_code(dynamic(), OWNER, world.deps)
         different = CreateCodeRequest("bldc-flyer", CodeKind.DYNAMIC, NEW_DESTINATION)
@@ -193,6 +222,21 @@ class TestChange:
         code = change_code(ChangeCodeRequest("bldc-flyer", campaign=""), OWNER, world.deps)
 
         assert code.final_url == DESTINATION
+
+    def test_a_new_campaign_is_republished(self, world):
+        create_code(dynamic(), OWNER, world.deps)
+
+        change_code(ChangeCodeRequest("bldc-flyer", campaign="summer"), OWNER, world.deps)
+
+        assert world.redirects.campaigns["bldc-flyer"] == "summer"
+
+    def test_a_badly_formed_campaign_is_refused(self, world):
+        create_code(dynamic(), OWNER, world.deps)
+
+        with pytest.raises(InvalidInput) as caught:
+            change_code(ChangeCodeRequest("bldc-flyer", campaign="a:b"), OWNER, world.deps)
+
+        assert caught.value.errors[0].field == "campaign"
 
     def test_static_destination_cannot_change(self, world):
         create_code(static(), OWNER, world.deps)

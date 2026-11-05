@@ -67,8 +67,10 @@ shared in `completion.py`.
 | **BC7 Repair pending** (Phase II) | Scheduled job finishes every `pending` code | System job, so the ownership rule does not apply |
 
 **Shared policies** (`cases/policies.py`): `authorize(actor, code, action)`, reserved codes
-(`api`, `admin`, `health`), `https`-only destinations, the 1 KB limit on the final URL, and the
-`allowed_actions` calculation.
+(`api`, `admin`, `health`), `https`-only destinations, the campaign format, the 900-byte limit on the
+final URL, and the `allowed_actions` calculation. A campaign is blank, or follows the same format as a
+code: lowercase letters, digits, and hyphens, up to 64 characters. That keeps it safe in the scan log
+format. The URL limit leaves room for the campaign and JSON inside KVS's 1 KB value limit.
 
 **Ownership rule, enforced from Phase I:** a user can act only on codes where `owner_sub` matches
 their own. Another user's code returns 404, not 403, so the API does not reveal it exists. Code names
@@ -100,7 +102,7 @@ erDiagram
         string destination "https URL entered by the user"
         string final_url "destination plus UTMs if campaign set"
         string label
-        string campaign "optional, may be blank"
+        string campaign "blank, or same format as code"
         string owner_sub "stable Cognito id"
         string created_by "email"
         datetime created_at
@@ -126,7 +128,8 @@ A storage or API change does not touch the model.
 **Storage:** table `qr-manager-<env>-codes`, PK `code`, with GSI `by-owner` (`owner_sub`, `created_at`) for
 "my codes". On-demand in both environments; PITR, deletion protection, and RETAIN in prod only.
 **DynamoDB is the source of truth.**
-KVS is a read projection of dynamic codes only (key `code`, value `final_url`).
+KVS is a read projection of dynamic codes only. The key is `code`, and the value is JSON holding what a
+scan needs: `{"url": "<final_url>", "campaign": "<campaign>"}`.
 
 ## 5. Architecture
 
@@ -159,10 +162,10 @@ flowchart LR
 
 | Stack (CDK TypeScript) | Contents | Why separate |
 |---|---|---|
-| `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, KVS failure alarm, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
+| `qr-manager-Edge` | Cert, KVS, function and log group, distribution, Route 53 alias, log bucket, log delivery, KVS failure and function failure alarms, SNS alert topic | Printed codes depend on it, so API deploys must not touch it |
 | `qr-manager-Auth` | Invite-only pool (RETAIN in prod), SES email, `qr-manager-<env>-cli` client (`disableOAuth: true`) | Holds identities |
 | `qr-manager-Api` | DynamoDB table (RETAIN in prod), API Lambda, render Lambda, private images bucket, HTTP API, publish or render failure alarm | Changes most often |
-| `qr-manager-Analytics` | Glue database and table, Athena workgroup `qr_analytics_<env>` | Schema comes from a real log file; fixes must not touch Edge |
+| `qr-manager-Analytics` | Glue database, `scan_logs` table, `scans` view, Athena workgroup `qr_analytics_<env>` | Schema comes from a real log file; fixes must not touch Edge |
 
 The names above are logical. Each environment deploys its own copy as `qr-manager-<env>-<Stack>`, for
 example `qr-manager-sandbox-Edge`.
@@ -321,13 +324,24 @@ destination, so none of our infrastructure is involved and no scans are recorded
 Viewer-request function, JS runtime 2.0, using `cf.kvs()` with no ID. It checks the code format
 before reading KVS, so `/favicon.ico` and scanner noise skip the lookup. The whole handler is wrapped
 so any failure still returns a 302 to the home page, never a 5xx. It sets `cache-control: no-store`.
-`cf.logCustomData` records `<code>:<hit|fallback|invalid|home>`. Athena takes the code from
-`cs-uri-stem`, because custom data can be absent at embedded POPs.
+A found code's KVS value is parsed as JSON. A value that cannot be parsed goes home as a `fallback`, and
+because it is not `KeyNotFound`, it raises the alarm.
+
+`cf.logCustomData` always records three parts: `<code>:<campaign>:<outcome>`, with an empty campaign
+when there is none, such as `claim-yourself:discovery:hit` or `one-off::hit`. The outcome is `hit`,
+`fallback`, `invalid`, or `home`. The `scans` view takes the code from `cs-uri-stem`, because custom data
+can be absent at embedded POPs.
+
+**The runtime is stricter than Node, which is where the tests run.** In sandbox, `await` inside a call's
+arguments stopped the whole file loading, so every request returned a 503 while every test passed. CDK
+publishes functions straight to live, so `aws cloudfront test-function` must run after every Edge deploy.
+A guard test covers this one case, and the `function-errors` alarm covers the rest.
 
 ### Publishing to KVS
 
 Synchronous, inside BC1, BC2, and BC5: write DynamoDB with `synced=false` and `version + 1`. Then, on
-each attempt, read the store ETag, read the item with `ConsistentRead`, and `PutKey` that value. Set
+each attempt, read the store ETag, read the item with `ConsistentRead`, and `PutKey` its final URL and
+campaign. Set
 `synced=true` only if `version` still matches. Re-reading stops a retry overwriting a newer
 destination with a stale one. If `version` has changed, the next attempt republishes the newer value
 even if it is marked as synced, because a slower writer may have overwritten it in KVS. On failure the
@@ -409,21 +423,42 @@ and is not valid JSON. CloudWatch filters on it must use text matching.
 
 ### Querying scans
 
-A Glue table describes the log files, and Athena queries them in place, so there is no database to run.
-Partition projection works out the `year=/month=/day=` folders from a formula, so no job has to register
-them. Each environment has its own database, `qr_manager_<env>`, and workgroup, `qr_analytics_<env>`. The
-workgroup stops any query reading more than 100 MB, and clients cannot override that. Results go to
-`athena-results/` in the log bucket, so they expire with the logs.
+Athena queries the log files in place, so there is no database to run. Each environment has its own
+database, `qr_manager_<env>`, and workgroup, `qr_analytics_<env>`. The workgroup stops any query reading
+more than 100 MB, and clients cannot override that. Results go to `athena-results/` in the log bucket, so
+they expire with the logs.
+
+The catalog has two objects, so the rules for reading logs live in one place:
+
+| Object | Kind | Holds | Used for |
+|---|---|---|---|
+| `scan_logs` | Glue table | Every request, exactly as logged, with `outcome_data` unparsed | Noise and troubleshooting |
+| `scans` | View over `scan_logs` | Real scans only, with named columns | All scan reporting |
+
+**`scan_logs`** finds the `year=/month=/day=` folders by partition projection, so no job has to register
+them. **`scans`** has these columns:
+
+| Column | Source |
+|---|---|
+| `code` | `cs-uri-stem`, without the leading `/` |
+| `campaign` | The second part of `outcome_data`; NULL when blank or missing |
+| `outcome` | The third part of `outcome_data`; NULL when missing |
+| `scanned_at` | `timestamp(ms)`, in `Pacific/Honolulu`, set once in the view |
+| `client_ip`, `country`, `user_agent` | Passed through |
+| `year`, `month`, `day` | Passed through, in UTC. Filtering on them keeps queries cheap |
 
 Confirmed in sandbox: the table reads every field, including the mapped names `cs(User-Agent)` and
-`timestamp(ms)`. Three things shape how scans are counted:
+`timestamp(ms)`, and the view returns `campaign` and local times from real phone scans. CDK has no view
+construct, so `scans` is a Glue table of type `VIRTUAL_VIEW` holding Athena's encoded definition.
+`scanned_at` is formatted as text before its cast, because casting a converted time directly gave back
+UTC. Three findings set the view's rules:
 
 - **Most traffic is noise.** Only 8 of 292 function responses were `hit`. The rest were `fallback`,
   `invalid`, and `home`, mostly from bots, and the `fallback` count also includes test misses.
-- **A scan is a function response that is a `hit` or has no outcome, on a path other than `/`.** The `-`
-  case keeps scans from embedded POPs, which can omit custom data. None of those 292 lacked an outcome, but
-  the sample is small.
-- **Values need care.** User agents are URL-encoded, and a missing outcome is a literal `-`. `Redirect`
+- **A scan is a function response that is a `hit` or has no outcome, on a path other than `/`, from
+  something other than a known bot.** The missing outcome case keeps scans from embedded POPs, which can
+  omit custom data. None of those 292 lacked an outcome, but the sample is small.
+- **Values need care.** User agents are URL-encoded, and missing custom data is a literal `-`. `Redirect`
   rows are the HTTP to HTTPS 301, and `Error` rows are refused requests, so both are excluded.
 
 Example queries are in [`OPERATIONS.md`](OPERATIONS.md).
@@ -452,8 +487,8 @@ flowchart TD
 | `common/` | Logger, correlation ID | Domain knowledge |
 | `render/` (separate project) | Render handler, PNG drawing, logo assets | Anything from `backend/`: models, cases, DynamoDB |
 
-**Enforced, not just documented.** Four `import-linter` contracts make `uv run lint-imports` fail if a
-layer imports something it must not:
+**Enforced, not just documented.** Four `import-linter` contracts make `PYTHONPATH=src uv run lint-imports`
+fail if a layer imports something it must not:
 
 - `models` must not import `cases`, `adapters`, `handlers`, the AWS SDK, or Powertools.
 - `cases` must not directly import `adapters`, `handlers`, the AWS SDK, or Powertools. Indirect imports
@@ -581,13 +616,17 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
   measured. The function writes one `console.log` line with `event.context.requestId`, code, and
   outcome; the access log supplies `time-taken`, joined on `x-edge-request-id`.
 - **Style:** braces and own-line bodies everywhere; NumPy docstrings on all public Python.
-- **Alarms:** the catch-all means failures become quiet redirects to home, so a function-errors alarm
-  would never fire. Instead a metric filter counts `fallback` lines, excluding `KeyNotFound`, and alarms
-  on a single match. Misses are excluded because bots cause them; the threshold is 1 because at this
-  scan volume an outage may produce only a few failures. A valid code missing from KVS does not alarm,
-  but a failed publish already shows as `pending` and raises the alarm below. A
-  second metric filter on the API Lambda's log group alarms on any KVS publish or render failure. Both
-  use the SNS topic in the Edge stack, which is for operational alerts only.
+- **Alarms:** there are three, all at a threshold of 1, because at this scan volume an outage may produce
+  only a few failures. All use the SNS topic in the Edge stack, which is for operational alerts only.
+  - `kvs-failures`: the catch-all turns errors while the function runs into quiet redirects to home, so a
+    metric filter counts `fallback` lines, excluding `KeyNotFound`. Misses are excluded because bots cause
+    them. A valid code missing from KVS does not alarm, but a failed publish already shows as `pending`
+    and raises `step-failures`.
+  - `function-errors`: a function that cannot load or run returns a 503 and writes no logs, so the catch-all
+    and `kvs-failures` both miss it. This alarm uses CloudFront's `FunctionExecutionErrors` and
+    `FunctionThrottles` metrics, which recorded the sandbox outage. They arrive a few minutes late.
+  - `step-failures`: a metric filter on the API Lambda's log group catches any KVS publish or render
+    failure.
 - **Images:** the bucket is private with public access blocked. Only the render Lambda can write, and
   the API Lambda can read and presign. The API Lambda alone may invoke the render Lambda.
 
@@ -608,6 +647,10 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
 | CLI language | Python run through uv with a shell wrapper; a pure shell script would still need `curl` and `jq` |
 | S3-triggered DynamoDB write | Rejected. The caller would lose the synchronous 409, failures would be silent, S3 events would still need idempotent writes, and business data would travel in object metadata |
 | SNS for returning results | Rejected. Scripts and browsers cannot subscribe, and a shared topic would break per-user isolation |
+| Campaign in scan logs | Carried as data in the KVS value and logged per scan, so a scan keeps the campaign live at that moment. Reading it from the URL's UTMs was rejected because it ties the function to the UTM format |
+| DynamoDB export joined in Athena | Rejected. It needs a scheduled job, and shows a code's current campaign rather than the one live at the scan |
+| Scan reporting | Through the `scans` view, so bot and parsing rules are not repeated in each query |
+| Pre-launch reset | One-time exception to R6, before any code is printed in volume: stored data is emptied in both environments so every record uses the new formats. `claim-yourself` is recreated under the same name, so its existing PNG keeps working |
 
 **Known gap, for Phase II:** owner-only access means no user can act across all users. BC7 repairs
 `pending` codes as a system job, but a full KVS rebuild for every owner and reassigning codes when
@@ -625,6 +668,7 @@ needed yet.
 - **A real KVS read failure has not been observed.** Both a miss and a failure go home. A miss logs
   `Error: KeyNotFound`, confirmed in sandbox, so anything else is treated as a failure.
 - **Failure paths are proven by tests, not on real AWS.** No real publish or render failure has happened
-  in sandbox, so the `step-failures` alarm has not fired, and the prod alarm email has not been received.
-- **Function deploys go live immediately**, hence the tests, the separate Edge stack, and deploying to
-  sandbox first.
+  in sandbox, so the `step-failures` alarm has not fired. The `function-errors` alarm has not fired either, although
+  its metrics recorded a real outage, and no prod alarm email has been received.
+- **Function deploys go live immediately**, hence the tests, the separate Edge stack, deploying to sandbox
+  first, and running `test-function` after every Edge deploy.

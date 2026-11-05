@@ -33,6 +33,27 @@ const LAST_LOG_YEAR = 2046;
 /** Stops a single query reading more than this, as a guard against mistakes. */
 const MAX_BYTES_PER_QUERY = 100 * 1024 * 1024;
 
+/** Where scan times are shown. Partitions stay in UTC. */
+const SCAN_TIME_ZONE = 'Pacific/Honolulu';
+
+/** Known bots and tools, matched against the lowercased, URL-encoded user agent. */
+const BOT_PATTERN =
+  'bot|crawl|spider|l9scan|checker|-check|curl|wget|python|go-http|headless|preview';
+
+/** The view's columns, in order, with their Athena and Glue types. */
+const VIEW_COLUMNS = [
+  ['code', 'varchar', 'string'],
+  ['campaign', 'varchar', 'string'],
+  ['outcome', 'varchar', 'string'],
+  ['scanned_at', 'timestamp', 'timestamp'],
+  ['client_ip', 'varchar', 'string'],
+  ['country', 'varchar', 'string'],
+  ['user_agent', 'varchar', 'string'],
+  ['year', 'varchar', 'string'],
+  ['month', 'varchar', 'string'],
+  ['day', 'varchar', 'string'],
+];
+
 /** Inputs to this stack. */
 export interface AnalyticsStackProps extends StackProps {
   readonly config: EnvConfig;
@@ -59,11 +80,11 @@ export class AnalyticsStack extends Stack {
       Object.entries(COLUMNS).map(([column, field]) => [`mapping.${column}`, field]),
     );
 
-    const table = new glue.CfnTable(this, 'ScansTable', {
+    const table = new glue.CfnTable(this, 'ScanLogsTable', {
       catalogId: this.account,
       databaseName,
       tableInput: {
-        name: 'scans',
+        name: 'scan_logs',
         tableType: 'EXTERNAL_TABLE',
         partitionKeys: [
           { name: 'year', type: 'string' },
@@ -97,6 +118,50 @@ export class AnalyticsStack extends Stack {
       },
     });
     table.addDependency(database);
+
+    // --- Scans view ---------------------------------------------------------------
+    // Real scans only, with named columns, so these rules are not repeated in queries.
+    // A scan with no custom data has outcome_data '-', so campaign and outcome are NULL.
+    // scanned_at is formatted before the cast, because a direct cast gave back UTC.
+    const viewSql = `
+      SELECT substr(uri_stem, 2) AS code,
+             nullif(split_part(outcome_data, ':', 2), '') AS campaign,
+             nullif(split_part(outcome_data, ':', 3), '') AS outcome,
+             CAST(format_datetime(from_unixtime(CAST(timestamp_ms AS bigint) / 1000)
+                  AT TIME ZONE '${SCAN_TIME_ZONE}', 'yyyy-MM-dd HH:mm:ss') AS timestamp) AS scanned_at,
+             client_ip, country, user_agent, year, month, day
+      FROM "${databaseName}"."scan_logs"
+      WHERE result_type = 'FunctionGeneratedResponse'
+        AND uri_stem <> '/'
+        AND (outcome_data LIKE '%:hit' OR outcome_data = '-')
+        AND NOT regexp_like(lower(user_agent), '${BOT_PATTERN}')`;
+
+    // Athena stores a view as a Glue table holding this encoded definition.
+    const viewDefinition = Buffer.from(
+      JSON.stringify({
+        originalSql: viewSql,
+        catalog: 'awsdatacatalog',
+        schema: databaseName,
+        columns: VIEW_COLUMNS.map(([name, type]) => ({ name, type })),
+      }),
+    ).toString('base64');
+
+    const view = new glue.CfnTable(this, 'ScansView', {
+      catalogId: this.account,
+      databaseName,
+      tableInput: {
+        name: 'scans',
+        tableType: 'VIRTUAL_VIEW',
+        parameters: { presto_view: 'true', comment: 'Presto View' },
+        viewOriginalText: `/* Presto View: ${viewDefinition} */`,
+        viewExpandedText: '/* Presto View */',
+        storageDescriptor: {
+          columns: VIEW_COLUMNS.map(([name, , type]) => ({ name, type })),
+          serdeInfo: {},
+        },
+      },
+    });
+    view.addDependency(table);
 
     // --- Athena workgroup ---------------------------------------------------------
     new athena.CfnWorkGroup(this, 'WorkGroup', {

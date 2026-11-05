@@ -32,14 +32,21 @@ function templateFor(config: EnvConfig): Template {
   return Template.fromStack(stage.node.findChild('Analytics') as Stack);
 }
 
-/** Return the table's definition from the template. */
-function tableInput(template: Template) {
-  const [table] = Object.values(template.findResources('AWS::Glue::Table'));
-  return table.Properties.TableInput;
+/** Return a table or view's definition from the template, by name. */
+function tableInput(template: Template, name: string) {
+  const tables = Object.values(template.findResources('AWS::Glue::Table'));
+  const match = tables.find((table) => table.Properties.TableInput.Name === name);
+  return match?.Properties.TableInput;
 }
 
-describe('scans table', () => {
-  const table = tableInput(templateFor(SANDBOX));
+/** Decode the definition Athena stores inside a view. */
+function viewDefinition(view: { ViewOriginalText: string }) {
+  const encoded = view.ViewOriginalText.replace('/* Presto View: ', '').replace(' */', '');
+  return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+}
+
+describe('scan_logs table', () => {
+  const table = tableInput(templateFor(SANDBOX), 'scan_logs');
 
   it('reads every field in a real log line', () => {
     const { Parameters: mappings } = table.StorageDescriptor.SerdeInfo;
@@ -64,6 +71,43 @@ describe('scans table', () => {
     expect(JSON.stringify(table.Parameters['storage.location.template'])).toContain(
       '/qr-logs/year=${year}/month=${month}/day=${day}',
     );
+  });
+});
+
+describe('scans view', () => {
+  const view = tableInput(templateFor(SANDBOX), 'scans');
+  const definition = viewDefinition(view);
+
+  it('is a view over scan_logs in the same database', () => {
+    expect(view.TableType).toBe('VIRTUAL_VIEW');
+    expect(definition.schema).toBe('qr_manager_sandbox');
+    expect(definition.originalSql).toContain('FROM "qr_manager_sandbox"."scan_logs"');
+  });
+
+  it('offers code, campaign, and outcome as named columns', () => {
+    const names = definition.columns.map((column: { name: string }) => column.name);
+
+    expect(names).toEqual(expect.arrayContaining(['code', 'campaign', 'outcome', 'scanned_at']));
+  });
+
+  it('declares the same columns to Glue and Athena', () => {
+    const glueNames = view.StorageDescriptor.Columns.map((c: { Name: string }) => c.Name);
+    const athenaNames = definition.columns.map((c: { name: string }) => c.name);
+
+    expect(glueNames).toEqual(athenaNames);
+  });
+
+  it('shows scan times in local time, by formatting before the cast', () => {
+    expect(definition.originalSql).toMatch(
+      /format_datetime\([\s\S]*AT TIME ZONE 'Pacific\/Honolulu', 'yyyy-MM-dd HH:mm:ss'\)/,
+    );
+  });
+
+  it('keeps only real scans', () => {
+    expect(definition.originalSql).toContain("result_type = 'FunctionGeneratedResponse'");
+    expect(definition.originalSql).toContain("outcome_data LIKE '%:hit' OR outcome_data = '-'");
+    expect(definition.originalSql).toContain("uri_stem <> '/'");
+    expect(definition.originalSql).toContain('NOT regexp_like(lower(user_agent)');
   });
 });
 
