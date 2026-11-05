@@ -319,7 +319,9 @@ so any failure still returns a 302 to the home page, never a 5xx. It sets `cache
 Synchronous, inside BC1, BC2, and BC5: write DynamoDB with `synced=false` and `version + 1`. Then, on
 each attempt, read the store ETag, read the item with `ConsistentRead`, and `PutKey` that value. Set
 `synced=true` only if `version` still matches. Re-reading stops a retry overwriting a newer
-destination with a stale one. On failure the API returns 502 and the code stays `pending`, visibly.
+destination with a stale one. If `version` has changed, the next attempt republishes the newer value
+even if it is marked as synced, because a slower writer may have overwritten it in KVS. On failure the
+API returns 502 and the code stays `pending`, visibly.
 
 Because DynamoDB is always written first, KVS can be out of date but never holds a code DynamoDB does
 not know about. Scans always get a 302, so a printed code never shows an error page.
