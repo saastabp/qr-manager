@@ -1,0 +1,15 @@
+# Editor
+.idea/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# CDK and Node
+node_modules/
+cdk.out/
+
+# Generated deploy output
+infra/outputs.json
