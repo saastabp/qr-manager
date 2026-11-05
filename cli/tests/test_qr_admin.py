@@ -231,6 +231,32 @@ def test_resync_touches_only_pending_codes(monkeypatch, capsys):
     assert "Resynced 1 of 2" in capsys.readouterr().out
 
 
+def test_resync_carries_on_after_a_failure_and_then_reports_it(monkeypatch, capsys):
+    broken = {**CODE, "code": "broken", "status": "pending"}
+    patched: list[str] = []
+
+    def fake_request(method, url, **_kwargs):
+        if method == "GET":
+            return FakeResponse(200, {"codes": [broken, CODE]})
+
+        patched.append(url)
+        if url.endswith("/broken"):
+            return FakeResponse(502, {"error": {"message": "The publish step failed"}})
+
+        return FakeResponse(200, CODE)
+
+    monkeypatch.setattr(qr_admin.requests, "request", fake_request)
+    api = ApiClient(SETTINGS, FakeSession())
+
+    with pytest.raises(CliError, match="1 of 2 codes could not be resynced"):
+        qr_admin._run_resync(SimpleNamespace(all=True), FakeSession(), api)
+
+    output = capsys.readouterr()
+    assert len(patched) == 2
+    assert "Resynced 1 of 2" in output.out
+    assert "broken: failed" in output.err
+
+
 def test_the_environment_must_be_chosen():
     with pytest.raises(SystemExit):
         qr_admin.build_parser().parse_args(["list"])

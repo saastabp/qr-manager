@@ -36,6 +36,9 @@ const MAX_BYTES_PER_QUERY = 100 * 1024 * 1024;
 /** Where scan times are shown. Partitions stay in UTC. */
 const SCAN_TIME_ZONE = 'Pacific/Honolulu';
 
+/** A code's format. A backend test keeps this equal to CODE_PATTERN in the models. */
+const CODE_FORMAT = '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$';
+
 /** Known bots and tools, matched against the lowercased, URL-encoded user agent. */
 const BOT_PATTERN =
   'bot|crawl|spider|l9scan|checker|-check|curl|wget|python|go-http|headless|preview';
@@ -121,19 +124,24 @@ export class AnalyticsStack extends Stack {
 
     // --- Scans view ---------------------------------------------------------------
     // Real scans only, with named columns, so these rules are not repeated in queries.
+    // code is normalised as the redirect function does, so /Spring/ counts as spring.
     // A scan with no custom data has outcome_data '-', so campaign and outcome are NULL.
+    // Nothing proves those rows were hits, so they must at least look like a code.
     // scanned_at is formatted before the cast, because a direct cast gave back UTC.
     const viewSql = `
-      SELECT substr(uri_stem, 2) AS code,
+      SELECT code,
              nullif(split_part(outcome_data, ':', 2), '') AS campaign,
              nullif(split_part(outcome_data, ':', 3), '') AS outcome,
              CAST(format_datetime(from_unixtime(CAST(timestamp_ms AS bigint) / 1000)
                   AT TIME ZONE '${SCAN_TIME_ZONE}', 'yyyy-MM-dd HH:mm:ss') AS timestamp) AS scanned_at,
              client_ip, country, user_agent, year, month, day
-      FROM "${databaseName}"."scan_logs"
+      FROM (
+        SELECT *, lower(regexp_replace(uri_stem, '^/+|/+$', '')) AS code
+        FROM "${databaseName}"."scan_logs"
+      )
       WHERE result_type = 'FunctionGeneratedResponse'
-        AND uri_stem <> '/'
-        AND (outcome_data LIKE '%:hit' OR outcome_data = '-')
+        AND (outcome_data LIKE '%:hit'
+             OR (outcome_data = '-' AND regexp_like(code, '${CODE_FORMAT}')))
         AND NOT regexp_like(lower(user_agent), '${BOT_PATTERN}')`;
 
     // Athena stores a view as a Glue table holding this encoded definition.

@@ -93,7 +93,7 @@ troubleshoot.
 
 | `scans` column | Notes |
 |---|---|
-| `code` | The code name |
+| `code` | The code name, in lowercase and without slashes, however the path was typed |
 | `campaign` | The code's campaign at the time of the scan; NULL when it has none |
 | `outcome` | `hit`, or NULL for a scan from an embedded POP, which can omit it |
 | `scanned_at` | Hawaii time |
@@ -102,8 +102,9 @@ troubleshoot.
 
 Static codes never appear, because they do not touch this infrastructure.
 
-Counts are approximate. A bot that imitates a browser still gets through, but it would have to request a
-real code name to count. `approx_visitors` counts IP addresses, and one phone can change address, or
+Counts are approximate. A bot that imitates a browser gets through if it requests a real code name. It
+can also count on a path that only looks like a code, such as `/wp-login`, in the rare case that the log
+row has no outcome. Those rows show a NULL `outcome`. `approx_visitors` counts IP addresses, and one phone can change address, or
 several can share one. Partitions are in UTC, so a scan on the evening of the last day of a month in Hawaii
 lands in the next month's folder.
 
@@ -266,7 +267,11 @@ cli/qr-admin --env sandbox update my-code  # no options: finish or republish one
 A code changed while `pending` keeps sending scans to its old destination until this succeeds. This matters
 most when retracting a URL, so check `list` afterwards.
 
-`resync` covers only the signed-in user's codes.
+`resync` covers only the signed-in user's codes. A code that fails does not stop the others: `resync` reports
+each failure and exits with an error at the end, so it can simply be run again.
+
+`update` can answer `The code just changed. Try again` if two changes to one code overlap. Nothing was saved,
+so run it again.
 
 ## Tracing a request
 

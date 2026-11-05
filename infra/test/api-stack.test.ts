@@ -88,6 +88,27 @@ describe('Lambda functions', () => {
     });
   });
 
+  it('gives the API Lambda only the table calls it makes, and never a delete', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: [
+              'dynamodb:GetItem',
+              'dynamodb:Query',
+              'dynamodb:PutItem',
+              'dynamodb:UpdateItem',
+            ],
+          }),
+        ]),
+      },
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).not.toContain('dynamodb:DeleteItem');
+    expect(policies).toContain('/index/*');
+  });
+
   it('lets the API Lambda list the images bucket, so a missing PNG reads as 404', () => {
     const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
 

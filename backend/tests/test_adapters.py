@@ -99,9 +99,16 @@ class TestDynamoRepository:
     def test_update_replaces_the_code(self, repository):
         repository.add(make_code())
 
-        repository.update(make_code(destination="https://example.com/b", version=2))
+        stored = repository.update(make_code(destination="https://example.com/b", version=2))
 
+        assert stored is True
         assert repository.get("bldc-flyer").version == 2
+
+    def test_update_refuses_a_change_based_on_a_stale_read(self, repository):
+        repository.add(make_code(label="Newer", version=2))
+
+        assert repository.update(make_code(label="Stale", version=2)) is False
+        assert repository.get("bldc-flyer").label == "Newer"
 
     def test_mark_complete_records_the_steps(self, repository):
         repository.add(make_code())

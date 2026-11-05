@@ -344,14 +344,23 @@ def _run_png(args: argparse.Namespace, _session: Session, api: ApiClient) -> Non
 
 
 def _run_resync(args: argparse.Namespace, _session: Session, api: ApiClient) -> None:
-    """Handle the resync command."""
+    """Handle the resync command. One failed code does not stop the others."""
     codes = api.call("GET", "/codes")["codes"]
     chosen = [code for code in codes if args.all or code["status"] == "pending"]
+    failed = 0
     for code in chosen:
-        result = api.call("PATCH", f"/codes/{code['code']}", {})
+        try:
+            result = api.call("PATCH", f"/codes/{code['code']}", {})
+        except CliError as error:
+            failed += 1
+            print(f"{code['code']}: failed\n{error}", file=sys.stderr)
+            continue
+
         print(f"{result['code']}: {result['status']}")
 
-    print(f"Resynced {len(chosen)} of {len(codes)} codes")
+    print(f"Resynced {len(chosen) - failed} of {len(codes)} codes")
+    if failed:
+        raise CliError(f"{failed} of {len(chosen)} codes could not be resynced")
 
 
 def build_parser() -> argparse.ArgumentParser:

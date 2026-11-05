@@ -107,16 +107,38 @@ class DynamoCodeRepository(CodeRepository):
                 return codes
             query["ExclusiveStartKey"] = last_key
 
-    def update(self, code: QrCode) -> None:
-        """Replace a stored code.
+    def update(self, code: QrCode) -> bool:
+        """Replace a stored code, only if nothing has changed since it was read.
 
         Parameters
         ----------
         code : QrCode
-            The new value.
+            The new value, with its version increased by exactly one.
+
+        Returns
+        -------
+        bool
+            True if stored, False if the stored version is not the one before this.
+
+        Raises
+        ------
+        botocore.exceptions.ClientError
+            If DynamoDB fails for any reason other than the version check.
         """
-        self._table.put_item(Item=_to_item(code))
+        try:
+            self._table.put_item(
+                Item=_to_item(code),
+                ConditionExpression="#version = :previous",
+                ExpressionAttributeNames={"#version": "version"},
+                ExpressionAttributeValues={":previous": code.version - 1},
+            )
+        except ClientError as error:
+            if _is_condition_failure(error):
+                return False
+            raise
+
         logger.info("DynamoDB update code=%s version=%s", code.code, code.version)
+        return True
 
     def mark_complete(self, code: str, version: int, *, synced: bool, rendered: bool) -> bool:
         """Record finished steps, only if the version still matches.

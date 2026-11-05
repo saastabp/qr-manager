@@ -220,6 +220,16 @@ def test_an_unexpected_error_returns_500_without_details(api):
     assert body["error"]["message"] == "Something went wrong"
 
 
+def test_a_change_based_on_a_stale_read_returns_409(api):
+    api.call("POST", "/codes", DYNAMIC_BODY)
+    api.world.repository.update = lambda _code: False
+
+    status, body = api.call("PATCH", "/codes/bldc-flyer", {"label": "Flyer"})
+
+    assert status == 409
+    assert body["error"]["type"] == "conflict"
+
+
 def test_an_unparseable_destination_returns_400(api):
     status, body = api.call("POST", "/codes", {**DYNAMIC_BODY, "destination": "https://[bad"})
 

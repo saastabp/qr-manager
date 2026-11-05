@@ -40,9 +40,13 @@ class FakeRepository(CodeRepository):
         owned = [code for code in self.codes.values() if code.owner_sub == owner_sub]
         return sorted(owned, key=lambda code: code.created_at, reverse=True)
 
-    def update(self, code: QrCode) -> None:
-        """Replace a stored code."""
+    def update(self, code: QrCode) -> bool:
+        """Replace a stored code, only if the version is the next one."""
+        if self.codes[code.code].version != code.version - 1:
+            return False
+
         self.codes[code.code] = code
+        return True
 
     def mark_complete(self, code: str, version: int, *, synced: bool, rendered: bool) -> bool:
         """Record finished steps, only if the version still matches."""

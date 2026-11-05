@@ -317,8 +317,9 @@ flowchart TD
     O -->|No, or missing| N[404]
     O -->|Yes| T{Static, and destination<br/>or campaign changing?}
     T -->|Yes| REJ[400 refused]
-    T -->|No| W[Save, version + 1]
-    W --> DY{Dynamic?}
+    T -->|No| W{Save, version + 1,<br/>if unchanged since read?}
+    W -->|No| CONF[409 conflict, nothing saved]
+    W -->|Yes| DY{Dynamic?}
     DY -->|No| OK[200]
     DY -->|Yes| PUB[Publish to KVS<br/>re-reading the latest value]
     PUB -->|Succeeded| SY[synced=true if version matches] --> OK
@@ -449,7 +450,7 @@ them. **`scans`** has these columns:
 
 | Column | Source |
 |---|---|
-| `code` | `cs-uri-stem`, without the leading `/` |
+| `code` | `cs-uri-stem`, normalised as the redirect function does: lowercase, no outer slashes |
 | `campaign` | The second part of `outcome_data`; NULL when blank or missing |
 | `outcome` | The third part of `outcome_data`; NULL when missing |
 | `scanned_at` | `timestamp(ms)`, in `Pacific/Honolulu`, set once in the view |
@@ -464,9 +465,10 @@ UTC. Three findings set the view's rules:
 
 - **Most traffic is noise.** Only 8 of 292 function responses were `hit`. The rest were `fallback`,
   `invalid`, and `home`, mostly from bots, and the `fallback` count also includes test misses.
-- **A scan is a function response that is a `hit` or has no outcome, on a path other than `/`, from
-  something other than a known bot.** The missing outcome case keeps scans from embedded POPs, which can
-  omit custom data. None of those 292 lacked an outcome, but the sample is small.
+- **A scan is a function response from something other than a known bot, that is either a `hit`, or has
+  no outcome on a path in the code format.** The missing outcome case keeps scans from embedded POPs,
+  which can omit custom data. Nothing proves such a row was a hit, so a path like `/wp-login` would still
+  count. None of those 292 lacked an outcome, but the sample is small.
 - **Values need care.** User agents are URL-encoded, and missing custom data is a literal `-`. `Redirect`
   rows are the HTTP to HTTPS 301, and `Error` rows are refused requests, so both are excluded.
 
@@ -562,7 +564,7 @@ All routes sit behind the JWT authorizer, and this contract serves both the scri
 | `POST /codes` | BC1 | 201, or 200 for a repeat of the same request; 409 if the code is otherwise taken; 502 naming the step if publishing or rendering fails |
 | `GET /codes` | BC3 | The caller's codes |
 | `GET /codes/{code}` | BC3 | One code; 404 if not the caller's |
-| `PATCH /codes/{code}` | BC2 | Updated code; 404 if not the caller's. An empty body finishes any incomplete step and republishes |
+| `PATCH /codes/{code}` | BC2 | Updated code; 404 if not the caller's; 409 `conflict` if the code changed after it was read, with nothing saved. An empty body finishes any incomplete step and republishes |
 | `GET /codes/{code}/image?logo=full` | BC4 | `{ "url": "<presigned>", "expires_in": 300 }`; 404 if not the caller's; 409 while `pending`; 502 if rendering fails |
 
 BC5 needs no route of its own in Phase I: `qr-admin resync` sends an empty `PATCH` per code, and

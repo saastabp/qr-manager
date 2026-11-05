@@ -105,9 +105,18 @@ describe('scans view', () => {
 
   it('keeps only real scans', () => {
     expect(definition.originalSql).toContain("result_type = 'FunctionGeneratedResponse'");
-    expect(definition.originalSql).toContain("outcome_data LIKE '%:hit' OR outcome_data = '-'");
-    expect(definition.originalSql).toContain("uri_stem <> '/'");
+    expect(definition.originalSql).toContain("outcome_data LIKE '%:hit'");
     expect(definition.originalSql).toContain('NOT regexp_like(lower(user_agent)');
+  });
+
+  it('counts a row with no outcome only if its path looks like a code', () => {
+    expect(definition.originalSql).toMatch(/outcome_data = '-' AND regexp_like\(code, '\^/);
+  });
+
+  it('normalises the code as the redirect function does', () => {
+    expect(definition.originalSql).toContain(
+      "lower(regexp_replace(uri_stem, '^/+|/+$', '')) AS code",
+    );
   });
 });
 

@@ -10,15 +10,24 @@ from fakes import OWNER, REDIRECT_DOMAIN, STRANGER, FakeWorld
 
 from cases.change_code import ChangeCodeRequest, change_code
 from cases.create_code import CreateCodeRequest, create_code
-from cases.errors import CodeNotFound, CodeNotReady, CodeTaken, InvalidInput, StepFailed
+from cases.errors import (
+    CodeConflict,
+    CodeNotFound,
+    CodeNotReady,
+    CodeTaken,
+    InvalidInput,
+    StepFailed,
+)
 from cases.get_image import get_image
 from cases.policies import allowed_actions, status_of
 from cases.redirect_url import build_final_url
 from cases.view_codes import get_code, list_codes
+from common.logger import logger
 from models.qr_code import CODE_PATTERN, CodeKind, CodeStatus
 
 DESTINATION = "https://example.com/page"
 NEW_DESTINATION = "https://example.com/new"
+REPO_ROOT = Path(__file__).parents[2]
 
 
 @pytest.fixture
@@ -355,6 +364,19 @@ class TestChange:
 
         assert world.redirects.published["bldc-flyer"] == NEW_DESTINATION
 
+    def test_a_change_based_on_a_stale_read_is_refused(self, world):
+        stale, _ = create_code(dynamic(), OWNER, world.deps)
+        world.repository.codes["bldc-flyer"] = stale.model_copy(
+            update={"label": "Newer", "version": stale.version + 1}
+        )
+        world.repository.get = lambda _name: stale
+
+        with pytest.raises(CodeConflict):
+            change_code(ChangeCodeRequest("bldc-flyer", label="Stale"), OWNER, world.deps)
+
+        assert world.repository.codes["bldc-flyer"].label == "Newer"
+        assert world.redirects.calls == 1
+
 
 class TestView:
     """BC3."""
@@ -442,10 +464,74 @@ class TestImage:
             get_image("bldc-flyer", "flower", OWNER, world.deps)
 
 
-def test_code_format_matches_the_redirect_function():
-    """The format exists in Python and JavaScript, so the two must not drift apart."""
-    source = Path(__file__).parents[2] / "infra/lib/cloudfront-functions/redirect.js"
-    match = re.search(r"const CODE_FORMAT = /(.+)/;", source.read_text())
+class TestAlarmText:
+    """The step-failures alarm matches log text, so every failure must use its terms."""
+
+    @pytest.fixture
+    def logged(self, monkeypatch) -> list[str]:
+        """Capture the messages logged as errors."""
+        messages: list[str] = []
+
+        def record(message: str, *_args, **_kwargs) -> None:
+            messages.append(message)
+
+        monkeypatch.setattr(logger, "error", record)
+        monkeypatch.setattr(logger, "exception", record)
+        return messages
+
+    @staticmethod
+    def alarm_fires(messages: list[str]) -> bool:
+        """Tell whether any message contains a term the alarm matches."""
+        source = (REPO_ROOT / "infra/lib/api/http-api.ts").read_text()
+        terms = re.search(r"anyTerm\('([^']+)', '([^']+)'\)", source)
+
+        assert terms is not None
+        return any(term in message for term in terms.groups() for message in messages)
+
+    def test_a_failed_publish_alarms(self, world, logged):
+        world.redirects.fail = True
+
+        with pytest.raises(StepFailed):
+            create_code(dynamic(), OWNER, world.deps)
+
+        assert self.alarm_fires(logged)
+
+    def test_a_failed_render_alarms(self, world, logged):
+        world.renderer.fail = True
+
+        with pytest.raises(StepFailed):
+            create_code(dynamic(), OWNER, world.deps)
+
+        assert self.alarm_fires(logged)
+
+    def test_a_failed_image_render_alarms(self, world, logged):
+        create_code(dynamic(), OWNER, world.deps)
+        world.renderer.fail = True
+
+        with pytest.raises(StepFailed):
+            get_image("bldc-flyer", "flower", OWNER, world.deps)
+
+        assert self.alarm_fires(logged)
+
+    def test_a_code_that_keeps_changing_alarms(self, world, logged):
+        world.repository.mark_complete = lambda *_args, **_kwargs: False
+
+        with pytest.raises(StepFailed):
+            create_code(dynamic(), OWNER, world.deps)
+
+        assert self.alarm_fires(logged)
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern"),
+    [
+        ("infra/lib/cloudfront-functions/redirect.js", r"const CODE_FORMAT = /(.+)/;"),
+        ("infra/lib/analytics-stack.ts", r"const CODE_FORMAT = '(.+)';"),
+    ],
+)
+def test_code_format_matches_everywhere_it_is_copied(path, pattern):
+    """The format cannot be shared across languages, so the copies must not drift apart."""
+    match = re.search(pattern, (REPO_ROOT / path).read_text())
 
     assert match is not None
     assert match.group(1) == CODE_PATTERN

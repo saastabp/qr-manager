@@ -90,7 +90,8 @@ def complete(name: str, deps: Dependencies, *, republish: bool = False) -> QrCod
         logger.info("Code changed while finishing code=%s version=%s", name, code.version)
         republish = True
 
-    logger.error("Code kept changing while finishing code=%s", name)
+    # The wording matters: the step-failures alarm matches "Publish failed".
+    logger.error("Publish failed code=%s reason=kept_changing", name)
     raise StepFailed("publish")
 
 

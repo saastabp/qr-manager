@@ -62,13 +62,18 @@ class CodeRepository(ABC):
         """
 
     @abstractmethod
-    def update(self, code: QrCode) -> None:
-        """Replace a stored code.
+    def update(self, code: QrCode) -> bool:
+        """Replace a stored code, only if nothing has changed since it was read.
 
         Parameters
         ----------
         code : QrCode
-            The new value, with its version already increased.
+            The new value, with its version increased by exactly one.
+
+        Returns
+        -------
+        bool
+            True if stored, False if the stored version is not the one before this.
         """
 
     @abstractmethod

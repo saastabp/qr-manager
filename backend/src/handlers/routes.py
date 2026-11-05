@@ -16,6 +16,7 @@ from cases.change_code import ChangeCodeRequest, change_code
 from cases.completion import Dependencies
 from cases.create_code import CreateCodeRequest, create_code
 from cases.errors import (
+    CodeConflict,
     CodeNotFound,
     CodeNotReady,
     CodeTaken,
@@ -129,6 +130,10 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
     @app.exception_handler(CodeNotReady)
     def on_not_ready(error: CodeNotReady) -> Response:
         return _error_response(error, 409, "not_ready", "The code is not ready yet")
+
+    @app.exception_handler(CodeConflict)
+    def on_conflict(error: CodeConflict) -> Response:
+        return _error_response(error, 409, "conflict", "The code just changed. Try again")
 
     @app.exception_handler(StepFailed)
     def on_step_failed(error: StepFailed) -> Response:

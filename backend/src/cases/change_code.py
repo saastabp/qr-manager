@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from cases import policies
 from cases.completion import Dependencies, complete
-from cases.errors import FieldError, InvalidInput
+from cases.errors import CodeConflict, FieldError, InvalidInput
 from cases.redirect_url import build_final_url
 from common.logger import logger
 from models.actor import Actor
@@ -59,6 +59,8 @@ def change_code(request: ChangeCodeRequest, actor: Actor, deps: Dependencies) ->
         If the code is missing or belongs to someone else.
     InvalidInput
         If the change breaks a business rule.
+    CodeConflict
+        If the code changed after it was read. Nothing is saved, and the caller can retry.
     StepFailed
         If publishing or rendering fails. The code stays pending and can be retried.
     """
@@ -97,7 +99,10 @@ def change_code(request: ChangeCodeRequest, actor: Actor, deps: Dependencies) ->
             "synced": existing.synced and final_url == existing.final_url,
         }
     )
-    deps.repository.update(changed)
+    if not deps.repository.update(changed):
+        logger.info("Change refused, code changed since read code=%s", changed.code)
+        raise CodeConflict
+
     logger.info("Code updated code=%s version=%s", changed.code, changed.version)
 
     return complete(changed.code, deps)

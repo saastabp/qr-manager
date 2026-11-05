@@ -70,7 +70,15 @@ export class HttpApi extends Construct {
     });
 
     // --- Permissions --------------------------------------------------------------
-    props.table.grantReadWriteData(apiFunction);
+    // Only the calls the adapter makes. Leaving out DeleteItem backs up the rule that codes
+    // are never deleted. A CDK grant covers the table and its indexes.
+    props.table.grant(
+      apiFunction,
+      'dynamodb:GetItem',
+      'dynamodb:Query',
+      'dynamodb:PutItem',
+      'dynamodb:UpdateItem',
+    );
     // Includes s3:ListBucket. Without it, S3 reports a missing PNG as 403 rather than 404.
     props.imagesBucket.grantRead(apiFunction);
     props.renderFunction.grantInvoke(apiFunction);

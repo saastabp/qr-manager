@@ -58,6 +58,10 @@ class CodeNotReady(CaseError):
     """The code is still pending, so its image cannot be downloaded yet."""
 
 
+class CodeConflict(CaseError):
+    """The code changed after this request read it, so the change was not saved."""
+
+
 class StepFailed(CaseError):
     """A step that reaches another service failed, leaving the code pending.
 
