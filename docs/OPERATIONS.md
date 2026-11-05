@@ -27,7 +27,8 @@ live as soon as the deploy finishes.
 
 ## Adding a user
 
-Users are created by hand until Phase II. The password is set directly because `qr-admin login` does not
+Users are created by hand until Phase II. Run these from the project root, not `infra/`, because the paths
+are relative to it. The password is set directly because `qr-admin login` does not
 handle the forced password change that an invitation requires. Passwords need at least 8 characters, with
 upper and lower case letters, a digit, and a symbol.
 
@@ -158,6 +159,6 @@ most when retracting a URL, so check `list` afterwards.
 
 - **API:** every error shows a correlation ID. Search for it in `/aws/lambda/qr-manager-<env>-api` and
   `/aws/lambda/qr-manager-<env>-render`.
-- **Scan:** the `request_id` column in Athena matches the `request_id` in the function's log line.
-  CloudFront prefixes each function log line with the request ID, so that line is not valid JSON and needs
-  text matching in CloudWatch.
+- **Scan:** the `request_id` column in Athena matches the `request_id` field in the JSON of the function's
+  log line. Use that field, not the ID CloudFront puts before the JSON, because the two can differ. That
+  prefix also means the line is not valid JSON, so it needs text matching in CloudWatch.

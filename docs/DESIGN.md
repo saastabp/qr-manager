@@ -404,7 +404,7 @@ statement. Fields: `timestamp(ms)`, `x-edge-request-id`, `c-ip`, `cs-uri-stem`, 
 `cs(User-Agent)`, `c-country`, `x-edge-result-type`, `time-taken`, `viewer-request-log-data`.
 
 Confirmed in sandbox: S3 files arrive within minutes, and the JSON keys match these field names. All
-values are strings. CloudFront prefixes each function log line, so a line reads `<request id> <json>`
+values are strings. CloudFront prefixes each function log line, so a line reads `<id> <json>`
 and is not valid JSON. CloudWatch filters on it must use text matching.
 
 ### Querying scans

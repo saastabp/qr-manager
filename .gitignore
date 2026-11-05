@@ -15,4 +15,5 @@ cdk.out/
 infra/outputs-*.json
 
 # PNGs saved by qr-admin
+/*.png
 cli/*.png
