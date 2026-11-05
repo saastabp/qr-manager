@@ -72,6 +72,10 @@ final URL, and the `allowed_actions` calculation. A campaign is blank, or follow
 code: lowercase letters, digits, and hyphens, up to 64 characters. That keeps it safe in the scan log
 format. The URL limit leaves room for the campaign and JSON inside KVS's 1 KB value limit.
 
+A destination must be printable ASCII, with no spaces, quotes, or backslashes, so anything else has to be
+percent-encoded. A raw newline would otherwise reach the `Location` header, and JSON encoding would grow
+non-ASCII text past the KVS limit after the size check had passed.
+
 **Ownership rule, enforced from Phase I:** a user can act only on codes where `owner_sub` matches
 their own. Another user's code returns 404, not 403, so the API does not reveal it exists. Code names
 stay globally unique because they share one URL space, so creating a taken name still returns 409.
@@ -191,6 +195,11 @@ the required `--env` option, so prod is never used by accident. Deploys are by h
 `npx cdk deploy 'sandbox/*' --profile brian-admin --outputs-file outputs-sandbox.json`. The CLI reads
 `infra/outputs-<env>.json`; each environment has its own file because CDK overwrites the file on each
 deploy.
+
+This repository is public, so it holds no account or zone IDs. The account comes from `--profile`, and the
+Route 53 zone is looked up by name. CDK caches that lookup in `infra/cdk.context.json`, which git ignores.
+The cost is that nothing pins the account in code, so the zone lookup is the guard: a profile for another
+account does not find the zone, and the deploy stops.
 
 Confirmed in sandbox: the API Lambda's role credentials and the bundled `awscrt` work with the KVS
 SigV4A API, so the account-wide session token setting was not needed.
@@ -606,9 +615,11 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
 - **Auth:** invite-only pool. The script uses `USER_PASSWORD_AUTH` on the `qr-manager-<env>-cli` client,
   prompted with `getpass`, and sends the ID token, because access tokens have no `email` claim. Tokens are cached in
   `~/.config/qr-manager/tokens-<env>.json` with mode 0600. The first user is created with
-  `admin-create-user` and `admin-set-user-password --permanent`.
-- **API logging:** pairable entry and exit logs with correlation ID and `duration_ms`; the error body
-  and `logger.exception` at ERROR; own lines for DynamoDB writes, KVS calls with latency, and
+  `admin-create-user` and `admin-set-user-password --permanent`. `qr-admin --verbose` raises only the
+  script's own logger, because debug logging in botocore prints the password at sign-in.
+- **API logging:** pairable entry and exit logs with correlation ID and `duration_ms`; every error
+  response, 4xx included, logs its body and stack trace at ERROR. Alarms match log text, not the level, so
+  these lines never page anyone. Own lines for DynamoDB writes, KVS calls with latency, and
   authorization decisions. The API Lambda also logs render invocations with latency, and passes the
   correlation ID so the render Lambda's entry and exit logs pair with the request.
   Lazy `%s` formatting. The raw event is never logged, as it carries the JWT.

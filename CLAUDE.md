@@ -23,6 +23,8 @@ Static and dynamic QR codes for 360 Balanced Living. Read `docs/DESIGN.md` befor
 
 - All stacks are in us-east-1, in one `QrManagerStage`, built for `sandbox` and `prod` from `lib/config.ts`.
   Both share one account, so every named resource must include the environment.
+- This repository is public. Keep account and zone IDs out of code, docs, and diagrams. The account comes
+  from `--profile`, and `infra/cdk.context.json` stays ignored because it holds both IDs.
 - A construct's position is part of its CloudFormation ID. Moving a deployed resource makes CloudFormation
   try to replace it, so split a stack before its first deploy.
 - Keep `@aws-cdk/core:defaultCrossStackReferences` as `strong`. A test guards this.

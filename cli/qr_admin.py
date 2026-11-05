@@ -420,10 +420,11 @@ def main(argv: list[str] | None = None) -> int:
         The exit code: 0 for success, 1 for an error.
     """
     args = build_parser().parse_args(argv)
-    level = logging.WARNING
+    # Only this script's logger goes to debug. Debug on the root logger would also turn on
+    # botocore's, which prints request bodies, including the password at sign-in.
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     if args.verbose:
-        level = logging.DEBUG
-    logging.basicConfig(level=level, format="%(levelname)s %(message)s")
+        logger.setLevel(logging.DEBUG)
 
     try:
         settings = load_settings(args.env)

@@ -15,6 +15,10 @@ npx cdk deploy 'sandbox/*' --profile brian-admin --outputs-file outputs-sandbox.
 Always keep `--outputs-file`, because `qr-admin` reads that file. Each environment has its own. The file
 is overwritten on each deploy, so a single-stack deploy must use a different file name.
 
+Every `cdk` command needs `--profile`, because the account comes from it. This repository is public, so
+account and zone IDs stay out of it. CDK caches its Route 53 lookup in `infra/cdk.context.json`, which git
+ignores. Never commit that file.
+
 Read the diff carefully for the Edge stack. Printed codes depend on it, and redirect function changes go
 live as soon as the deploy finishes.
 
@@ -267,7 +271,8 @@ most when retracting a URL, so check `list` afterwards.
 ## Tracing a request
 
 - **API:** every error shows a correlation ID. Search for it in `/aws/lambda/qr-manager-<env>-api` and
-  `/aws/lambda/qr-manager-<env>-render`.
+  `/aws/lambda/qr-manager-<env>-render`. Every error response logs its body and stack trace at `ERROR`,
+  including an ordinary 400 or 404, so `ERROR` alone does not mean something is broken.
 - **Scan:** the `request_id` column in `scan_logs` matches the `request_id` field in the JSON of the
   function's log line. Use that field, not the ID CloudFront puts before the JSON, because the two can
   differ. That prefix also means the line is not valid JSON, so it needs text matching in CloudWatch.

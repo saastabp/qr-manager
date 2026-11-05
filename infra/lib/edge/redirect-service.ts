@@ -13,7 +13,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
-import { EnvConfig, HOSTED_ZONE, resourceName } from '../config';
+import { EnvConfig, resourceName, ZONE_NAME } from '../config';
 
 /** Inputs to this construct. */
 export interface RedirectServiceProps {
@@ -31,8 +31,10 @@ export class RedirectService extends Construct {
     const { config } = props;
 
     // --- Domain and certificate ---------------------------------------------------
-    // Looks up the existing zone. This reads it; it does not create or own it.
-    const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', HOSTED_ZONE);
+    // Looks up the existing zone by name. This reads it; it does not create or own it.
+    // CDK saves the answer in cdk.context.json, which git ignores because it holds the
+    // account and zone IDs. A profile for another account finds no zone and stops here.
+    const zone = route53.HostedZone.fromLookup(this, 'Zone', { domainName: ZONE_NAME });
 
     // HTTPS certificate. CDK adds the DNS validation record to the zone automatically.
     const certificate = new acm.Certificate(this, 'Certificate', {
@@ -80,7 +82,7 @@ export class RedirectService extends Construct {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       defaultBehavior: {
         // Required by CloudFront, but never contacted: the function always answers.
-        origin: new origins.HttpOrigin(HOSTED_ZONE.zoneName),
+        origin: new origins.HttpOrigin(ZONE_NAME),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         // Never cache, so a destination change takes effect without an invalidation.

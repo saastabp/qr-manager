@@ -9,7 +9,8 @@ from typing import Any
 import pytest
 from fakes import OWNER, REDIRECT_DOMAIN, STRANGER, FakeWorld
 
-from handlers.routes import create_app
+from cases.errors import CodeNotFound, InvalidInput
+from handlers.routes import create_app, logger
 from models.actor import Actor
 
 DYNAMIC_BODY = {
@@ -217,3 +218,33 @@ def test_an_unexpected_error_returns_500_without_details(api):
 
     assert status == 500
     assert body["error"]["message"] == "Something went wrong"
+
+
+def test_an_unparseable_destination_returns_400(api):
+    status, body = api.call("POST", "/codes", {**DYNAMIC_BODY, "destination": "https://[bad"})
+
+    assert status == 400
+    assert body["error"]["fields"][0]["field"] == "destination"
+
+
+@pytest.mark.parametrize(
+    ("path", "request_body", "expected_status", "expected_error"),
+    [
+        ("/codes/missing", None, 404, CodeNotFound),
+        ("/codes", {**DYNAMIC_BODY, "code": "api"}, 400, InvalidInput),
+    ],
+)
+def test_an_error_response_logs_its_body_and_stack_trace(
+    api, monkeypatch, path, request_body, expected_status, expected_error
+):
+    logged: list[tuple[tuple, dict]] = []
+    monkeypatch.setattr(logger, "error", lambda *args, **kwargs: logged.append((args, kwargs)))
+    method = "GET" if request_body is None else "POST"
+
+    status, body = api.call(method, path, request_body)
+
+    (_message, logged_status, logged_body), options = logged[0]
+    assert status == expected_status
+    assert logged_status == expected_status
+    assert json.loads(logged_body) == body
+    assert isinstance(options["exc_info"], expected_error)

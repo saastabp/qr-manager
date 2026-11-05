@@ -116,28 +116,27 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
     @app.exception_handler(InvalidInput)
     def on_invalid(error: InvalidInput) -> Response:
         fields = [{"field": e.field, "message": e.message} for e in error.errors]
-        return _error_response(400, "validation", str(error), fields)
+        return _error_response(error, 400, "validation", str(error), fields)
 
     @app.exception_handler(CodeNotFound)
-    def on_not_found(_error: CodeNotFound) -> Response:
-        return _error_response(404, "not_found", "Code not found")
+    def on_not_found(error: CodeNotFound) -> Response:
+        return _error_response(error, 404, "not_found", "Code not found")
 
     @app.exception_handler(CodeTaken)
-    def on_taken(_error: CodeTaken) -> Response:
-        return _error_response(409, "code_taken", "That code name is taken")
+    def on_taken(error: CodeTaken) -> Response:
+        return _error_response(error, 409, "code_taken", "That code name is taken")
 
     @app.exception_handler(CodeNotReady)
-    def on_not_ready(_error: CodeNotReady) -> Response:
-        return _error_response(409, "not_ready", "The code is not ready yet")
+    def on_not_ready(error: CodeNotReady) -> Response:
+        return _error_response(error, 409, "not_ready", "The code is not ready yet")
 
     @app.exception_handler(StepFailed)
     def on_step_failed(error: StepFailed) -> Response:
-        return _error_response(502, f"{error.step}_failed", str(error))
+        return _error_response(error, 502, f"{error.step}_failed", str(error))
 
     @app.exception_handler(Exception)
-    def on_unexpected(_error: Exception) -> Response:
-        logger.exception("Unexpected error")
-        return _error_response(500, "internal", "Something went wrong")
+    def on_unexpected(error: Exception) -> Response:
+        return _error_response(error, 500, "internal", "Something went wrong")
 
     return app
 
@@ -161,14 +160,17 @@ def _json(status: int, content: dict[str, Any]) -> Response:
 
 
 def _error_response(
-    status: int, kind: str, message: str, fields: list[dict[str, str]] | None = None
+    error: Exception,
+    status: int,
+    kind: str,
+    message: str,
+    fields: list[dict[str, str]] | None = None,
 ) -> Response:
-    """Build an error response, and log the body for server errors."""
+    """Build an error response, and log its body and stack trace."""
     content = {
         "error": {"type": kind, "message": message, "fields": fields or []},
         "correlation_id": logger.get_correlation_id(),
     }
-    if status >= 500:
-        logger.error("Error response status=%s body=%s", status, json.dumps(content))
+    logger.error("Error response status=%s body=%s", status, json.dumps(content), exc_info=error)
 
     return _json(status, content)

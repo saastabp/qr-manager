@@ -14,6 +14,9 @@ cdk.out/
 # Generated deploy output
 infra/outputs-*.json
 
+# CDK's lookup cache, which holds the account and zone IDs. This repository is public.
+infra/cdk.context.json
+
 # PNGs saved by qr-admin
 /*.png
 cli/*.png

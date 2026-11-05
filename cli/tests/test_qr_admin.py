@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import stat
 import time
 from types import SimpleNamespace
@@ -241,3 +242,18 @@ def test_errors_exit_with_status_1(capsys, monkeypatch, tmp_path):
 
     assert qr_admin.main(["--env", "sandbox", "list"]) == 1
     assert "Error:" in capsys.readouterr().err
+
+
+def test_verbose_keeps_aws_debug_logging_off(monkeypatch, tmp_path):
+    """Debug on the root logger would print the password botocore sends at sign-in."""
+    root_levels: list[int] = []
+    monkeypatch.setattr(
+        qr_admin.logging, "basicConfig", lambda **kwargs: root_levels.append(kwargs["level"])
+    )
+    monkeypatch.setattr(qr_admin.load_settings, "__defaults__", (tmp_path,))
+    monkeypatch.setattr(qr_admin, "logger", logging.getLogger("qr-admin-test"))
+
+    qr_admin.main(["--env", "sandbox", "--verbose", "list"])
+
+    assert root_levels == [logging.WARNING]
+    assert qr_admin.logger.level == logging.DEBUG

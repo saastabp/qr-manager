@@ -82,6 +82,32 @@ class TestCreate:
 
         assert caught.value.errors[0].field == "destination"
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://exa\nmple.com/a",
+            "https://example.com/a\tb",
+            "https://example.com/a b",
+            'https://example.com/"',
+            "https://example.com/\\",
+            "https://example.com/日本語",
+            "https://[bad",
+            "https://:443/",
+        ],
+    )
+    def test_destination_must_be_a_safe_encoded_url(self, world, url):
+        with pytest.raises(InvalidInput) as caught:
+            create_code(CreateCodeRequest("ok", CodeKind.DYNAMIC, url), OWNER, world.deps)
+
+        assert caught.value.errors[0].field == "destination"
+
+    def test_a_percent_encoded_destination_is_allowed(self, world):
+        url = "https://example.com/caf%C3%A9?a=1&b=%20#top"
+
+        code, _ = create_code(CreateCodeRequest("ok", CodeKind.DYNAMIC, url), OWNER, world.deps)
+
+        assert code.final_url == url
+
     def test_final_url_must_fit_in_the_redirect_store(self, world):
         long_url = f"https://example.com/{'a' * 1100}"
 

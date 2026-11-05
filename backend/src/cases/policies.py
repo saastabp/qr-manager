@@ -21,6 +21,10 @@ RESERVED_CODES = frozenset({"admin", "api", "health"})
 #: Room for the campaign and JSON, within the KeyValueStore's 1 KB limit for one value.
 MAX_FINAL_URL_BYTES = 900
 
+#: Printable ASCII without spaces, quotes, or backslashes. A URL like this is safe in a
+#: Location header, and JSON encoding does not grow it, so the limit above holds.
+URL_CHARACTERS = r"[!#-\[\]-~]+"
+
 #: Shown when a code or campaign does not follow the shared name format.
 NAME_FORMAT_MESSAGE = (
     "Use 1 to 64 lowercase letters, digits, or hyphens, not starting or ending in a hyphen"
@@ -55,18 +59,35 @@ def destination_errors(destination: str) -> list[FieldError]:
     Parameters
     ----------
     destination : str
-        The URL entered by the user.
+        The URL entered by the user. Other characters must be percent-encoded.
 
     Returns
     -------
     list[FieldError]
         Any problems found; empty if the URL is acceptable.
-    """
-    parts = urlsplit(destination)
-    if parts.scheme != "https" or not parts.netloc:
-        return [FieldError("destination", "Destination must be a full https URL")]
 
-    return []
+    Examples
+    --------
+    >>> destination_errors("https://example.com/caf%C3%A9")
+    []
+    >>> destination_errors("https://example.com/a b")[0].field
+    'destination'
+    """
+    if re.fullmatch(URL_CHARACTERS, destination) and _is_full_https(destination):
+        return []
+
+    message = "Destination must be a full https URL, with special characters percent-encoded"
+    return [FieldError("destination", message)]
+
+
+def _is_full_https(url: str) -> bool:
+    """Tell whether a URL parses as https with a host."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+
+    return parts.scheme == "https" and bool(parts.hostname)
 
 
 def campaign_errors(campaign: str) -> list[FieldError]:

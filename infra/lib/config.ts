@@ -10,9 +10,6 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 /** Prefixes every stack and named resource, and tags everything for cost tracking. */
 export const APP_NAME = 'qr-manager';
 
-/** Where everything deploys. A CDK "env" is the account and region pair for a stack. */
-export const ACCOUNT = '381492047863';
-
 /**
  * Everything is in us-east-1, unlike the us-west-2 sibling apps. CloudFront needs its
  * certificate here, and log delivery must be created here, so one region avoids
@@ -20,11 +17,8 @@ export const ACCOUNT = '381492047863';
  */
 export const REGION = 'us-east-1';
 
-/** The existing Route 53 zone. CDK references it and must never create or delete it. */
-export const HOSTED_ZONE = {
-  hostedZoneId: 'Z08490251WV9146J97IRG',
-  zoneName: '360balancedliving.com',
-} as const;
+/** The existing Route 53 zone. CDK finds it by name and must never create or delete it. */
+export const ZONE_NAME = '360balancedliving.com';
 
 /**
  * Sender for Cognito's invitations and password resets. The domain is already verified in

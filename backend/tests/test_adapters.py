@@ -15,6 +15,7 @@ from adapters.dynamodb_codes import DynamoCodeRepository
 from adapters.kvs_publisher import KvsRedirectStore
 from adapters.render_invoker import LambdaRenderer
 from adapters.s3_images import S3ImageStore, image_key
+from cases.policies import MAX_FINAL_URL_BYTES
 from models.qr_code import CodeKind, QrCode
 
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
@@ -162,6 +163,15 @@ class TestKvsRedirectStore:
         KvsRedirectStore(client, "arn").publish("one-off", "https://example.com", "")
 
         assert client.puts[0]["Value"] == '{"url":"https://example.com","campaign":""}'
+
+    def test_the_largest_allowed_value_fits_in_kvs(self):
+        client = FakeKvsClient()
+        prefix = "https://example.com/"
+        longest_url = f"{prefix}{'a' * (MAX_FINAL_URL_BYTES - len(prefix))}"
+
+        KvsRedirectStore(client, "arn").publish("c", longest_url, "b" * 64)
+
+        assert len(client.puts[0]["Value"].encode()) <= 1024
 
     def test_a_conflict_retries_with_a_fresh_etag(self):
         client = FakeKvsClient([client_error("ConflictException")])
