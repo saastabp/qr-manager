@@ -13,7 +13,7 @@ from aws_lambda_powertools.event_handler import APIGatewayHttpResolver, Response
 from pydantic import BaseModel, ValidationError
 
 from cases.change_code import ChangeCodeRequest, change_code
-from cases.completion import Dependencies
+from cases.completion import DEFAULT_LOGO, Dependencies
 from cases.create_code import CreateCodeRequest, create_code
 from cases.errors import (
     CodeConflict,
@@ -24,14 +24,11 @@ from cases.errors import (
     InvalidInput,
     StepFailed,
 )
-from cases.get_image import get_image
+from cases.get_image import DOWNLOAD_URL_SECONDS, get_image
 from cases.view_codes import get_code, list_codes, view_of
 from common.logger import logger
 from handlers.schemas import ChangeCodeBody, CreateCodeBody, code_response
 from models.actor import Actor
-
-#: How long an image download link works, in seconds. Reported to clients.
-DOWNLOAD_URL_SECONDS = 300
 
 
 def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
@@ -110,7 +107,7 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
 
     @app.get("/codes/<code>/image")
     def get_code_image(code: str) -> Response:
-        logo = app.current_event.get_query_string_value("logo", "full")
+        logo = app.current_event.get_query_string_value("logo", DEFAULT_LOGO)
         url = get_image(code, logo, actor(), deps)
         return _json(200, {"url": url, "expires_in": DOWNLOAD_URL_SECONDS})
 

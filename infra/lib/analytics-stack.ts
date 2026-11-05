@@ -11,20 +11,7 @@ import * as glue from 'aws-cdk-lib/aws-glue';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { EnvConfig } from './config';
-
-/** Column names and the log fields they read, from a real delivered log file. */
-const COLUMNS: Record<string, string> = {
-  timestamp_ms: 'timestamp(ms)',
-  request_id: 'x-edge-request-id',
-  client_ip: 'c-ip',
-  uri_stem: 'cs-uri-stem',
-  status: 'sc-status',
-  user_agent: 'cs(User-Agent)',
-  country: 'c-country',
-  result_type: 'x-edge-result-type',
-  time_taken: 'time-taken',
-  outcome_data: 'viewer-request-log-data',
-};
+import { LOG_COLUMNS, LOG_PREFIX } from './scan-log-format';
 
 /** The first year Athena looks for logs, and how far ahead it looks. */
 const FIRST_LOG_YEAR = 2026;
@@ -39,9 +26,14 @@ const SCAN_TIME_ZONE = 'Pacific/Honolulu';
 /** A code's format. A backend test keeps this equal to CODE_PATTERN in the models. */
 const CODE_FORMAT = '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$';
 
-/** Known bots and tools, matched against the lowercased, URL-encoded user agent. */
+/**
+ * Known bots and tools, matched against the lowercased, URL-encoded user agent. The last
+ * two are link-preview fetchers. Facebook's in-app browser is a real person, and has
+ * FBAN in its user agent rather than facebookexternalhit.
+ */
 const BOT_PATTERN =
-  'bot|crawl|spider|l9scan|checker|-check|curl|wget|python|go-http|headless|preview';
+  'bot|crawl|spider|l9scan|checker|-check|curl|wget|python|go-http|headless|preview|' +
+  'facebookexternalhit|whatsapp';
 
 /** The view's columns, in order, with their Athena and Glue types. */
 const VIEW_COLUMNS = [
@@ -70,7 +62,7 @@ export class AnalyticsStack extends Stack {
 
     // Athena names cannot contain hyphens without quoting, so use underscores here.
     const databaseName = `qr_manager_${config.envName}`;
-    const logLocation = `s3://${logBucket.bucketName}/qr-logs`;
+    const logLocation = `s3://${logBucket.bucketName}/${LOG_PREFIX}`;
 
     // --- Glue database and table --------------------------------------------------
     const database = new glue.CfnDatabase(this, 'Database', {
@@ -80,7 +72,7 @@ export class AnalyticsStack extends Stack {
 
     // Every value in the logs is a string, including numbers.
     const mappings = Object.fromEntries(
-      Object.entries(COLUMNS).map(([column, field]) => [`mapping.${column}`, field]),
+      Object.entries(LOG_COLUMNS).map(([column, field]) => [`mapping.${column}`, field]),
     );
 
     const table = new glue.CfnTable(this, 'ScanLogsTable', {
@@ -112,7 +104,7 @@ export class AnalyticsStack extends Stack {
           location: `${logLocation}/`,
           inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
           outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
-          columns: Object.keys(COLUMNS).map((name) => ({ name, type: 'string' })),
+          columns: Object.keys(LOG_COLUMNS).map((name) => ({ name, type: 'string' })),
           serdeInfo: {
             serializationLibrary: 'org.openx.data.jsonserde.JsonSerDe',
             parameters: mappings,

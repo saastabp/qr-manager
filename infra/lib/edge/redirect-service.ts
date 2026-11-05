@@ -5,7 +5,6 @@
  * the DNS records. See docs/DESIGN.md, section 5.
  */
 import * as path from 'path';
-import { RemovalPolicy } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
@@ -14,6 +13,7 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
 import { EnvConfig, resourceName, ZONE_NAME } from '../config';
+import { logGroupProps, removalPolicyFor } from '../defaults';
 
 /** Inputs to this construct. */
 export interface RedirectServiceProps {
@@ -24,6 +24,7 @@ export class RedirectService extends Construct {
   // Public so the parent stack can pass them to other constructs and stacks.
   readonly keyValueStore: cloudfront.KeyValueStore;
   readonly distribution: cloudfront.Distribution;
+  readonly functionName: string;
   readonly functionLogs: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: RedirectServiceProps) {
@@ -48,14 +49,11 @@ export class RedirectService extends Construct {
       keyValueStoreName: resourceName(config, 'codes'),
       comment: 'Maps QR codes to final URLs',
     });
-    // RETAIN leaves a resource in place when the stack is deleted.
-    this.keyValueStore.applyRemovalPolicy(
-      config.retainData ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-    );
+    this.keyValueStore.applyRemovalPolicy(removalPolicyFor(config));
 
-    const functionName = resourceName(config, 'redirect');
+    this.functionName = resourceName(config, 'redirect');
     const redirectFunction = new cloudfront.Function(this, 'RedirectFunction', {
-      functionName,
+      functionName: this.functionName,
       code: cloudfront.FunctionCode.fromFile({
         filePath: path.join(__dirname, '..', 'cloudfront-functions', 'redirect.js'),
       }),
@@ -63,17 +61,16 @@ export class RedirectService extends Construct {
       keyValueStore: this.keyValueStore,
     });
 
-    // CloudFront writes function logs to this exact name. Creating it here sets
-    // retention, which an automatically created log group would not have.
-    this.functionLogs = new logs.LogGroup(this, 'RedirectLogs', {
-      logGroupName: `/aws/cloudfront/function/${functionName}`,
-      retention: config.logRetention,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+    // CloudFront writes function logs to this exact name.
+    this.functionLogs = new logs.LogGroup(
+      this,
+      'RedirectLogs',
+      logGroupProps(config, `/aws/cloudfront/function/${this.functionName}`),
+    );
 
     // --- Distribution -------------------------------------------------------------
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
-      comment: functionName,
+      comment: this.functionName,
       domainNames: [config.domainName],
       certificate,
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,

@@ -5,13 +5,11 @@
  * There is no DELETE route, which enforces the rule that codes are never deleted. See
  * docs/DESIGN.md, section 7.
  */
-import { CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { CfnOutput, Duration } from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
-import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -21,6 +19,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 import { EnvConfig, resourceName } from '../config';
+import { logGroupProps } from '../defaults';
+import { addFailureAlarm, failureCount, failureFilterProps } from '../failure-alarm';
 import { LAMBDA_ARCH, PYTHON_RUNTIME, pythonBundle } from '../python-lambda';
 
 /** Inputs to this construct. */
@@ -42,11 +42,11 @@ export class HttpApi extends Construct {
 
     // --- API Lambda ---------------------------------------------------------------
     const functionName = resourceName(config, 'api');
-    const logGroup = new logs.LogGroup(this, 'Logs', {
-      logGroupName: `/aws/lambda/${functionName}`,
-      retention: config.logRetention,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+    const logGroup = new logs.LogGroup(
+      this,
+      'Logs',
+      logGroupProps(config, `/aws/lambda/${functionName}`),
+    );
 
     const apiFunction = new lambda.Function(this, 'Function', {
       functionName,
@@ -120,23 +120,21 @@ export class HttpApi extends Construct {
 
     // --- Failure alarm ------------------------------------------------------------
     // Any failed publish or render means a code is stuck in pending.
-    const failureFilter = logGroup.addMetricFilter('StepFailureFilter', {
-      filterPattern: logs.FilterPattern.anyTerm('Publish failed', 'Render failed'),
-      metricNamespace: 'QrManager',
-      metricName: `${config.envName}-step-failures`,
-      metricValue: '1',
-    });
+    const failureFilter = logGroup.addMetricFilter(
+      'StepFailureFilter',
+      failureFilterProps(
+        config,
+        'step-failures',
+        logs.FilterPattern.anyTerm('Publish failed', 'Render failed'),
+      ),
+    );
 
-    const failureAlarm = new cloudwatch.Alarm(this, 'StepFailureAlarm', {
+    addFailureAlarm(this, 'StepFailureAlarm', {
       alarmName: resourceName(config, 'step-failures'),
       alarmDescription: 'A publish or render failed, so a code is stuck in pending',
-      metric: failureFilter.metric({ statistic: 'Sum', period: Duration.minutes(5) }),
-      threshold: 1,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      metric: failureCount(failureFilter),
+      topic: props.alertTopic,
     });
-    failureAlarm.addAlarmAction(new cloudwatchActions.SnsAction(props.alertTopic));
 
     // --- Outputs ------------------------------------------------------------------
     new CfnOutput(this, 'ApiUrl', { value: api.apiEndpoint });

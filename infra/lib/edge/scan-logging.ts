@@ -5,33 +5,18 @@
  * logs start as soon as this deploys, because scans that are not logged cannot be
  * recovered. See docs/DESIGN.md, section 5.
  */
-import { Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { Duration, Stack } from 'aws-cdk-lib';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { EnvConfig, resourceName } from '../config';
-
-/** Folder in the log bucket that CloudFront writes to. */
-const LOG_PREFIX = 'qr-logs';
+import { privateBucketProps } from '../defaults';
+import { LOG_COLUMNS, LOG_PREFIX } from '../scan-log-format';
 
 /** Scan logs are kept this long, then S3 deletes them. They contain raw viewer IPs. */
 const LOG_RETENTION_DAYS = 400;
-
-/** Fields written to each scan log line. */
-const LOG_FIELDS = [
-  'timestamp(ms)',
-  'x-edge-request-id',
-  'c-ip',
-  'cs-uri-stem',
-  'sc-status',
-  'cs(User-Agent)',
-  'c-country',
-  'x-edge-result-type',
-  'time-taken',
-  'viewer-request-log-data',
-];
 
 /** Inputs to this construct. */
 export interface ScanLoggingProps {
@@ -51,12 +36,7 @@ export class ScanLogging extends Construct {
 
     // --- Log bucket ---------------------------------------------------------------
     this.bucket = new s3.Bucket(this, 'Bucket', {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      removalPolicy: config.retainData ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-      // Sandbox only: empties the bucket so the stack can be deleted.
-      autoDeleteObjects: !config.retainData,
+      ...privateBucketProps(config),
       lifecycleRules: [{ expiration: Duration.days(LOG_RETENTION_DAYS) }],
     });
 
@@ -102,7 +82,7 @@ export class ScanLogging extends Construct {
     const delivery = new logs.CfnDelivery(this, 'Delivery', {
       deliverySourceName: sourceName,
       deliveryDestinationArn: deliveryDestination.attrArn,
-      recordFields: LOG_FIELDS,
+      recordFields: Object.values(LOG_COLUMNS),
       s3SuffixPath: '{yyyy}/{MM}/{dd}',
       s3EnableHiveCompatiblePath: true,
     });

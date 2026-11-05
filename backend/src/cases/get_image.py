@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from cases import policies
-from cases.completion import Dependencies
-from cases.errors import CodeNotReady, FieldError, InvalidInput, StepFailed
-from cases.redirect_url import build_encoded_url
+from cases.completion import Dependencies, render_image
+from cases.errors import CodeNotReady, FieldError, InvalidInput
 from common.logger import logger
 from models.actor import Actor
 from models.qr_code import CodeStatus
 
 #: The logo variants a code's image can use.
 LOGO_VARIANTS = frozenset({"flower", "full"})
+
+#: How long a download link works, in seconds. The API also reports this to clients.
+DOWNLOAD_URL_SECONDS = 300
 
 
 def get_image(name: str, logo: str, actor: Actor, deps: Dependencies) -> str:
@@ -54,11 +56,6 @@ def get_image(name: str, logo: str, actor: Actor, deps: Dependencies) -> str:
         raise CodeNotReady
 
     if not deps.images.exists(name, logo):
-        encoded_url = build_encoded_url(name, code.kind, code.final_url, deps.redirect_domain)
-        try:
-            deps.renderer.render(name, encoded_url, logo)
-        except ConnectionError:
-            logger.exception("Render failed code=%s logo=%s", name, logo)
-            raise StepFailed("render") from None
+        render_image(code, logo, deps)
 
     return deps.images.download_url(name, logo)

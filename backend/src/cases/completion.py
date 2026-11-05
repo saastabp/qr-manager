@@ -80,7 +80,8 @@ def complete(name: str, deps: Dependencies, *, republish: bool = False) -> QrCod
             raise CodeNotFound
 
         synced = _publish_if_needed(code, deps, republish=republish)
-        _render_if_needed(code, deps)
+        if not code.rendered:
+            render_image(code, DEFAULT_LOGO, deps)
 
         if deps.repository.mark_complete(name, code.version, synced=synced, rendered=True):
             logger.info("Code complete code=%s version=%s", name, code.version)
@@ -93,6 +94,33 @@ def complete(name: str, deps: Dependencies, *, republish: bool = False) -> QrCod
     # The wording matters: the step-failures alarm matches "Publish failed".
     logger.error("Publish failed code=%s reason=kept_changing", name)
     raise StepFailed("publish")
+
+
+def render_image(code: QrCode, logo: str, deps: Dependencies) -> None:
+    """Render one of a code's PNGs and store it.
+
+    Parameters
+    ----------
+    code : QrCode
+        The code.
+    logo : str
+        The logo variant.
+    deps : Dependencies
+        The ports and settings.
+
+    Raises
+    ------
+    StepFailed
+        If rendering fails. The step-failures alarm matches the "Render failed" log line.
+    """
+    encoded_url = build_encoded_url(code.code, code.kind, code.final_url, deps.redirect_domain)
+    try:
+        deps.renderer.render(code.code, encoded_url, logo)
+    except ConnectionError:
+        logger.exception(
+            "Render failed code=%s logo=%s version=%s", code.code, logo, code.version
+        )
+        raise StepFailed("render") from None
 
 
 def _publish_if_needed(code: QrCode, deps: Dependencies, *, republish: bool) -> bool:
@@ -110,16 +138,3 @@ def _publish_if_needed(code: QrCode, deps: Dependencies, *, republish: bool) -> 
         raise StepFailed("publish") from None
 
     return True
-
-
-def _render_if_needed(code: QrCode, deps: Dependencies) -> None:
-    """Render the default PNG if it has not been stored yet."""
-    if code.rendered:
-        return
-
-    encoded_url = build_encoded_url(code.code, code.kind, code.final_url, deps.redirect_domain)
-    try:
-        deps.renderer.render(code.code, encoded_url, DEFAULT_LOGO)
-    except ConnectionError:
-        logger.exception("Render failed code=%s version=%s", code.code, code.version)
-        raise StepFailed("render") from None

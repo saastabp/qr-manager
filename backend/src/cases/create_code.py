@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 
 from cases import policies
 from cases.completion import Dependencies, complete
-from cases.errors import CodeTaken, InvalidInput
-from cases.redirect_url import build_final_url
+from cases.errors import CodeTaken
 from common.logger import logger
 from models.actor import Actor
 from models.qr_code import CodeKind, QrCode
@@ -68,7 +67,12 @@ def create_code(
         If publishing or rendering fails. The code stays pending, and repeating the
         request finishes it.
     """
-    final_url = _validated_final_url(request)
+    final_url = policies.validated_final_url(
+        request.code,
+        request.destination,
+        request.campaign,
+        policies.code_name_errors(request.code),
+    )
     now = datetime.now(UTC)
     candidate = QrCode(
         code=request.code,
@@ -95,22 +99,6 @@ def create_code(
 
     logger.info("Create repeated, finishing any incomplete step code=%s", request.code)
     return complete(request.code, deps), False
-
-
-def _validated_final_url(request: CreateCodeRequest) -> str:
-    """Apply the input rules and return the final URL."""
-    errors = policies.code_name_errors(request.code)
-    errors += policies.destination_errors(request.destination)
-    errors += policies.campaign_errors(request.campaign)
-    if errors:
-        raise InvalidInput(errors)
-
-    final_url = build_final_url(request.code, request.destination, request.campaign)
-    errors = policies.final_url_errors(final_url)
-    if errors:
-        raise InvalidInput(errors)
-
-    return final_url
 
 
 def _is_same_request(existing: QrCode, request: CreateCodeRequest, actor: Actor) -> bool:

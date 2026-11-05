@@ -4,10 +4,11 @@
  * An invite-only user pool and the client the qr-admin script signs in with. The Phase II
  * web client and Managed Login pages are added here later. See docs/DESIGN.md, section 9.
  */
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, Stack, StackProps } from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
 import { AUTH_EMAIL, EnvConfig, REGION, resourceName } from './config';
+import { removalPolicyFor } from './defaults';
 
 /** Inputs to this stack. */
 export interface AuthStackProps extends StackProps {
@@ -52,7 +53,7 @@ export class AuthStack extends Stack {
         sesVerifiedDomain: AUTH_EMAIL.sesVerifiedDomain,
       }),
       deletionProtection: config.retainData,
-      removalPolicy: config.retainData ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      removalPolicy: removalPolicyFor(config),
     });
 
     // --- Script client ------------------------------------------------------------

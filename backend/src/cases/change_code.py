@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from cases import policies
 from cases.completion import Dependencies, complete
 from cases.errors import CodeConflict, FieldError, InvalidInput
-from cases.redirect_url import build_final_url
 from common.logger import logger
 from models.actor import Actor
 from models.qr_code import CodeKind, QrCode
@@ -76,15 +75,7 @@ def change_code(request: ChangeCodeRequest, actor: Actor, deps: Dependencies) ->
 
     _reject_static_url_change(existing, destination, campaign)
 
-    errors = policies.destination_errors(destination)
-    errors += policies.campaign_errors(campaign)
-    if errors:
-        raise InvalidInput(errors)
-
-    final_url = build_final_url(existing.code, destination, campaign)
-    errors = policies.final_url_errors(final_url)
-    if errors:
-        raise InvalidInput(errors)
+    final_url = policies.validated_final_url(existing.code, destination, campaign)
 
     changed = existing.model_copy(
         update={

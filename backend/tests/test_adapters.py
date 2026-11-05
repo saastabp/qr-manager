@@ -4,21 +4,26 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import boto3
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
-from adapters.dynamodb_codes import DynamoCodeRepository
+from adapters.dynamodb_codes import OWNER_INDEX, DynamoCodeRepository
 from adapters.kvs_publisher import KvsRedirectStore
 from adapters.render_invoker import LambdaRenderer
 from adapters.s3_images import S3ImageStore, image_key
+from bootstrap import RENDER_CLIENT_CONFIG, S3_CLIENT_CONFIG
+from cases.get_image import DOWNLOAD_URL_SECONDS
 from cases.policies import MAX_FINAL_URL_BYTES
 from models.qr_code import CodeKind, QrCode
 
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+INFRA = Path(__file__).parents[2] / "infra/lib"
 
 
 def make_code(name: str = "bldc-flyer", **changes) -> QrCode:
@@ -238,13 +243,13 @@ class TestS3ImageStore:
             store.exists("bldc-flyer", "full")
 
     def test_download_url_points_at_the_png_and_expires(self):
-        store = S3ImageStore(boto3.client("s3"), "images")
+        store = S3ImageStore(boto3.client("s3", config=S3_CLIENT_CONFIG), "images")
 
         url = store.download_url("bldc-flyer", "full")
 
         assert "qr-images/bldc-flyer/full.png" in url
         assert "bldc-flyer-full.png" in url
-        assert "X-Amz-Expires=300" in url or "Expires=" in url
+        assert f"X-Amz-Expires={DOWNLOAD_URL_SECONDS}" in url
 
 
 class FakeLambdaClient:
@@ -291,3 +296,19 @@ class TestLambdaRenderer:
 
         with pytest.raises(ConnectionError):
             LambdaRenderer(client, "render").render("c", "u", "full")
+
+
+class TestInfraAgreement:
+    """Values that exist in Python and in CDK, so the two must not drift apart."""
+
+    def test_the_owner_index_exists_on_the_table(self):
+        source = (INFRA / "api/code-table.ts").read_text()
+
+        assert f"indexName: '{OWNER_INDEX}'" in source
+
+    def test_the_read_timeout_outlasts_the_render_lambda(self):
+        source = (INFRA / "api/render-service.ts").read_text()
+        timeout = re.search(r"timeout: Duration\.seconds\((\d+)\)", source)
+
+        assert timeout is not None
+        assert RENDER_CLIENT_CONFIG.read_timeout > int(timeout.group(1))

@@ -515,6 +515,7 @@ qr-manager/
   README.md  CLAUDE.md  .gitignore
   docs/  DESIGN.md  OPERATIONS.md  aws-architecture.drawio
   infra/  bin/app.ts  lib/{config,stage,edge-stack,auth-stack,api-stack,analytics-stack,python-lambda}.ts
+          lib/{defaults,failure-alarm,scan-log-format}.ts
           lib/edge/{redirect-service,scan-logging,alerts}.ts  lib/api/
           lib/cloudfront-functions/redirect.js  test/
   backend/  pyproject.toml  uv.lock  tests/

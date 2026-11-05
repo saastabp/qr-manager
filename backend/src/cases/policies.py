@@ -8,9 +8,11 @@ See docs/DESIGN.md, sections 3 and 8.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from urllib.parse import urlsplit
 
-from cases.errors import CodeNotFound, FieldError
+from cases.errors import CodeNotFound, FieldError, InvalidInput
+from cases.redirect_url import build_final_url
 from common.logger import logger
 from models.actor import Actor
 from models.qr_code import CODE_PATTERN, CodeKind, CodeStatus, QrCode
@@ -137,6 +139,44 @@ def final_url_errors(final_url: str) -> list[FieldError]:
         return [FieldError("destination", "Destination is too long")]
 
     return []
+
+
+def validated_final_url(
+    code: str, destination: str, campaign: str, earlier_errors: Sequence[FieldError] = ()
+) -> str:
+    """Apply the URL rules and build a code's final URL.
+
+    Parameters
+    ----------
+    code : str
+        The code name.
+    destination : str
+        The URL entered by the user.
+    campaign : str
+        The campaign. Blank means none.
+    earlier_errors : Sequence[FieldError]
+        Problems the caller already found, so every problem is reported at once.
+
+    Returns
+    -------
+    str
+        The URL a scan should end up at.
+
+    Raises
+    ------
+    InvalidInput
+        If any rule is broken.
+    """
+    errors = [*earlier_errors, *destination_errors(destination), *campaign_errors(campaign)]
+    if errors:
+        raise InvalidInput(errors)
+
+    final_url = build_final_url(code, destination, campaign)
+    errors = final_url_errors(final_url)
+    if errors:
+        raise InvalidInput(errors)
+
+    return final_url
 
 
 def status_of(code: QrCode) -> CodeStatus:

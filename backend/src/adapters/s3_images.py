@@ -10,10 +10,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from cases.get_image import DOWNLOAD_URL_SECONDS
 from cases.ports import ImageStore
-
-#: How long a download link works, in seconds.
-DOWNLOAD_URL_SECONDS = 300
 
 
 def image_key(code: str, logo: str) -> str:

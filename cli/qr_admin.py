@@ -35,6 +35,9 @@ EXPIRY_MARGIN_SECONDS = 60
 #: Longer than a cold create, which was measured at under 6 seconds.
 REQUEST_TIMEOUT_SECONDS = 35
 
+#: The PNG saved when no logo is chosen. The API decides which logos exist.
+DEFAULT_LOGO = "full"
+
 
 class CliError(Exception):
     """A problem to show the user as a message, without a traceback."""
@@ -317,7 +320,7 @@ def _run_create(args: argparse.Namespace, _session: Session, api: ApiClient) -> 
         },
     )
     _show(code)
-    _save_png(api, args.code, "full", args.output)
+    _save_png(api, args.code, DEFAULT_LOGO, args.output)
 
 
 def _run_update(args: argparse.Namespace, _session: Session, api: ApiClient) -> None:
@@ -404,7 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     png = commands.add_parser("png", help="download a code's PNG")
     png.add_argument("code")
-    png.add_argument("--logo", default="full", help="full or flower")
+    png.add_argument("--logo", default=DEFAULT_LOGO, help="full or flower")
     png.add_argument("--output", type=Path, help="where to save the PNG")
     png.set_defaults(run=_run_png)
 

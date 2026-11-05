@@ -38,6 +38,7 @@ export class EdgeStack extends Stack {
     });
     const alerts = new Alerts(this, 'Alerts', {
       config,
+      functionName: redirect.functionName,
       functionLogs: redirect.functionLogs,
     });
 

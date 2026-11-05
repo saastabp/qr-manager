@@ -5,10 +5,10 @@
  * deletion protection, point-in-time recovery, and survives a stack deletion. See
  * docs/DESIGN.md, section 4.
  */
-import { RemovalPolicy } from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 import { EnvConfig, resourceName } from '../config';
+import { removalPolicyFor } from '../defaults';
 
 /** Inputs to this construct. */
 export interface CodeTableProps {
@@ -31,10 +31,11 @@ export class CodeTable extends Construct {
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: config.retainData,
       },
-      removalPolicy: config.retainData ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      removalPolicy: removalPolicyFor(config),
     });
 
-    // "My codes": a user's codes, newest first. The adapter's OWNER_INDEX must match.
+    // "My codes": a user's codes, newest first. A backend test keeps this name equal to
+    // OWNER_INDEX in the adapter.
     this.table.addGlobalSecondaryIndex({
       indexName: 'by-owner',
       partitionKey: { name: 'owner_sub', type: dynamodb.AttributeType.STRING },

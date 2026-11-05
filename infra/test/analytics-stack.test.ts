@@ -109,6 +109,26 @@ describe('scans view', () => {
     expect(definition.originalSql).toContain('NOT regexp_like(lower(user_agent)');
   });
 
+  describe('bot filter', () => {
+    const pattern = definition.originalSql.match(/regexp_like\(lower\(user_agent\), '([^']+)'\)/);
+    const isBot = (userAgent: string) => new RegExp(pattern[1]).test(userAgent.toLowerCase());
+
+    it.each([
+      'facebookexternalhit/1.1%20(+http://www.facebook.com/externalhit_uatext.php)',
+      'WhatsApp/2.23.20.0',
+      'Mozilla/5.0%20(compatible;%20Googlebot/2.1)',
+    ])('removes the fetcher %s', (userAgent) => {
+      expect(isBot(userAgent)).toBe(true);
+    });
+
+    it.each([
+      'Mozilla/5.0%20(iPhone;%20CPU%20iPhone%20OS%2026_6_1)%20CriOS/156.0.8078.54%20Safari/604.1',
+      'Mozilla/5.0%20(iPhone)%20Mobile/23G83%20%5BFBAN/FBIOS;FBAV/585.0.0.28.107%5D',
+    ])('keeps the real browser %s', (userAgent) => {
+      expect(isBot(userAgent)).toBe(false);
+    });
+  });
+
   it('counts a row with no outcome only if its path looks like a code', () => {
     expect(definition.originalSql).toMatch(/outcome_data = '-' AND regexp_like\(code, '\^/);
   });
