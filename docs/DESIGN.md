@@ -668,7 +668,8 @@ needed yet.
 - **A real KVS read failure has not been observed.** Both a miss and a failure go home. A miss logs
   `Error: KeyNotFound`, confirmed in sandbox, so anything else is treated as a failure.
 - **Failure paths are proven by tests, not on real AWS.** No real publish or render failure has happened
-  in sandbox, so the `step-failures` alarm has not fired. The `function-errors` alarm has not fired either, although
-  its metrics recorded a real outage, and no prod alarm email has been received.
+  in sandbox, so the `step-failures` alarm has not fired on its own. The `function-errors` alarm has not either,
+  although its metrics recorded a real outage. Delivery is proven: forcing that alarm with `set-alarm-state` in
+  prod sent the email. That test skips the metrics, so it does not show that a real failure trips the alarm.
 - **Function deploys go live immediately**, hence the tests, the separate Edge stack, deploying to sandbox
   first, and running `test-function` after every Edge deploy.
