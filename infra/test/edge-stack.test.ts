@@ -4,22 +4,17 @@
  * Guards the settings that matter most: prod data surviving a stack deletion, scan
  * logging, and redirects never being cached.
  */
-import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { EnvConfig, PROD, SANDBOX } from '../lib/config';
 import { EdgeStack } from '../lib/edge-stack';
-import { QrManagerStage } from '../lib/stage';
-
-const ENV = { account: '111111111111', region: 'us-east-1' };
+import { buildStack } from './helpers';
 
 /** The AWS managed cache policy id for CachingDisabled. */
 const CACHING_DISABLED = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
 
 /** Build the Edge stack the same way the real app does. */
 function edgeStack(config: EnvConfig): EdgeStack {
-  const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
-  const stage = new QrManagerStage(app, config.envName, { env: ENV, config });
-  return stage.node.findChild('Edge') as EdgeStack;
+  return buildStack<EdgeStack>(config, 'Edge');
 }
 
 describe.each([
@@ -85,8 +80,10 @@ describe.each([
       FilterPattern: '"\\"outcome\\":\\"fallback\\"" -"KeyNotFound"',
     });
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: `qr-manager-${config.envName}-kvs-failures`,
       Threshold: 1,
       TreatMissingData: 'notBreaching',
+      AlarmActions: [Match.anyValue()],
     });
   });
 

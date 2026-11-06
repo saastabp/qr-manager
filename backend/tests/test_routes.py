@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 import pytest
-from fakes import OWNER, REDIRECT_DOMAIN, STRANGER, FakeWorld
+from fakes import OWNER, REDIRECT_DOMAIN, STRANGER, FakeWorld, api_event
 
 from cases.errors import CodeNotFound, InvalidInput
 from handlers.routes import create_app, logger
@@ -38,28 +38,9 @@ class Api:
         base64_encoded: bool = False,
     ) -> tuple[int, dict[str, Any]]:
         """Send one request and return the status and parsed body."""
-        event = {
-            "version": "2.0",
-            "routeKey": "$default",
-            "rawPath": path,
-            "rawQueryString": "",
-            "headers": {},
-            "queryStringParameters": query or {},
-            "requestContext": {
-                "requestId": "request-1",
-                "stage": "$default",
-                "http": {"method": method, "path": path},
-                "authorizer": {
-                    "jwt": {"claims": {"sub": actor.sub, "email": actor.email}, "scopes": []}
-                },
-            },
-            "isBase64Encoded": base64_encoded,
-        }
-        if isinstance(body, str):
-            event["body"] = body
-        elif body is not None:
-            event["body"] = json.dumps(body)
-
+        event = api_event(
+            method, path, body, actor=actor, query=query, base64_encoded=base64_encoded
+        )
         response = self.app.resolve(event, {})
         return response["statusCode"], json.loads(response["body"])
 

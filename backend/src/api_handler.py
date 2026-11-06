@@ -35,6 +35,11 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     -------
     dict[str, Any]
         The proxy response.
+
+    Raises
+    ------
+    Exception
+        Anything the resolver itself could not handle, once it has been logged.
     """
     start = time.monotonic()
     request_context = event.get("requestContext", {})

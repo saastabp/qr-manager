@@ -44,6 +44,11 @@ class DynamoCodeRepository(CodeRepository):
         -------
         bool
             True if stored, False if the name already exists.
+
+        Raises
+        ------
+        botocore.exceptions.ClientError
+            If DynamoDB fails for any reason other than the name being taken.
         """
         try:
             self._table.put_item(
@@ -71,6 +76,11 @@ class DynamoCodeRepository(CodeRepository):
         -------
         QrCode or None
             The stored code, or None if it does not exist.
+
+        Raises
+        ------
+        botocore.exceptions.ClientError
+            If DynamoDB fails.
         """
         response = self._table.get_item(Key={"code": code}, ConsistentRead=True)
         item = response.get("Item")
@@ -91,6 +101,11 @@ class DynamoCodeRepository(CodeRepository):
         -------
         list[QrCode]
             The owner's codes.
+
+        Raises
+        ------
+        botocore.exceptions.ClientError
+            If DynamoDB fails.
         """
         query: dict[str, Any] = {
             "IndexName": OWNER_INDEX,
@@ -158,6 +173,11 @@ class DynamoCodeRepository(CodeRepository):
         -------
         bool
             True if recorded, False if a newer version exists.
+
+        Raises
+        ------
+        botocore.exceptions.ClientError
+            If DynamoDB fails for any reason other than the version check.
         """
         try:
             self._table.update_item(

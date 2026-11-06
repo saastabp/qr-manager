@@ -64,6 +64,7 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
 
     @app.post("/codes")
     def post_code() -> Response:
+        """Create a code: 201 if new, 200 if this repeats an earlier request."""
         request: CreateCodeBody = body(CreateCodeBody)
         code, created = create_code(
             CreateCodeRequest(
@@ -83,15 +84,18 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
 
     @app.get("/codes")
     def get_codes() -> Response:
+        """List the caller's codes."""
         views = list_codes(actor(), deps)
         return _json(200, {"codes": [code_response(view) for view in views]})
 
     @app.get("/codes/<code>")
     def get_one_code(code: str) -> Response:
+        """Read one of the caller's codes."""
         return _json(200, code_response(get_code(code, actor(), deps)))
 
     @app.patch("/codes/<code>")
     def patch_code(code: str) -> Response:
+        """Change a code, or finish and republish it if the body is empty."""
         request: ChangeCodeBody = body(ChangeCodeBody)
         changed = change_code(
             ChangeCodeRequest(
@@ -107,37 +111,45 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
 
     @app.get("/codes/<code>/image")
     def get_code_image(code: str) -> Response:
+        """Return a short-lived download link for a code's PNG."""
         logo = app.current_event.get_query_string_value("logo", DEFAULT_LOGO)
         url = get_image(code, logo, actor(), deps)
         return _json(200, {"url": url, "expires_in": DOWNLOAD_URL_SECONDS})
 
     @app.exception_handler(InvalidInput)
     def on_invalid(error: InvalidInput) -> Response:
+        """Report a broken rule, with one entry per field."""
         fields = [{"field": e.field, "message": e.message} for e in error.errors]
         return _error_response(error, 400, "validation", str(error), fields)
 
     @app.exception_handler(CodeNotFound)
     def on_not_found(error: CodeNotFound) -> Response:
+        """Report a code that is missing or belongs to someone else."""
         return _error_response(error, 404, "not_found", "Code not found")
 
     @app.exception_handler(CodeTaken)
     def on_taken(error: CodeTaken) -> Response:
+        """Report a name that is already in use."""
         return _error_response(error, 409, "code_taken", "That code name is taken")
 
     @app.exception_handler(CodeNotReady)
     def on_not_ready(error: CodeNotReady) -> Response:
+        """Report a code that is still pending."""
         return _error_response(error, 409, "not_ready", "The code is not ready yet")
 
     @app.exception_handler(CodeConflict)
     def on_conflict(error: CodeConflict) -> Response:
+        """Report a change that lost to a newer one, and was not saved."""
         return _error_response(error, 409, "conflict", "The code just changed. Try again")
 
     @app.exception_handler(StepFailed)
     def on_step_failed(error: StepFailed) -> Response:
+        """Report a publish or render that failed, naming the step."""
         return _error_response(error, 502, f"{error.step}_failed", str(error))
 
     @app.exception_handler(Exception)
     def on_unexpected(error: Exception) -> Response:
+        """Report anything else, without revealing details."""
         return _error_response(error, 500, "internal", "Something went wrong")
 
     return app

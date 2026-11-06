@@ -63,11 +63,13 @@ class LambdaRenderer(Renderer):
                 Payload=json.dumps(payload),
             )
         except (BotoCoreError, ClientError) as error:
+            _log_failure(code, logo, type(error).__name__, start)
             raise ConnectionError("Render Lambda could not be invoked") from error
 
         # A crash inside the function is reported here, not raised by invoke().
         if "FunctionError" in response:
             detail = response["Payload"].read().decode()
+            _log_failure(code, logo, response["FunctionError"], start)
             raise ConnectionError(f"Render Lambda failed: {detail}")
 
         logger.info(
@@ -76,3 +78,14 @@ class LambdaRenderer(Renderer):
             logo,
             elapsed_ms(start),
         )
+
+
+def _log_failure(code: str, logo: str, status: str, start: float) -> None:
+    """Log a failed invoke with the same fields as a successful one."""
+    logger.warning(
+        "Render invoked code=%s logo=%s status=%s latency_ms=%s",
+        code,
+        logo,
+        status,
+        elapsed_ms(start),
+    )

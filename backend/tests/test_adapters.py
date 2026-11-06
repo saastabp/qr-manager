@@ -20,6 +20,7 @@ from adapters.s3_images import S3ImageStore, image_key
 from bootstrap import RENDER_CLIENT_CONFIG, S3_CLIENT_CONFIG
 from cases.get_image import DOWNLOAD_URL_SECONDS
 from cases.policies import MAX_FINAL_URL_BYTES
+from common.logger import logger
 from models.qr_code import CodeKind, QrCode
 
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
@@ -131,6 +132,19 @@ class TestDynamoRepository:
         assert repository.get("bldc-flyer").synced is False
 
 
+@pytest.fixture
+def logged(monkeypatch) -> list[str]:
+    """Capture the text of info and warning log lines."""
+    lines: list[str] = []
+
+    def record(message: str, *args, **_kwargs) -> None:
+        lines.append(message % args)
+
+    monkeypatch.setattr(logger, "info", record)
+    monkeypatch.setattr(logger, "warning", record)
+    return lines
+
+
 class FakeKvsClient:
     """Acts like the KVS client, raising the queued errors first."""
 
@@ -212,6 +226,29 @@ class TestKvsRedirectStore:
         with pytest.raises(ConnectionError):
             KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
 
+    @pytest.mark.parametrize(
+        ("error", "status"),
+        [
+            (client_error("AccessDeniedException"), "AccessDeniedException"),
+            (EndpointConnectionError(endpoint_url="https://kvs"), "EndpointConnectionError"),
+        ],
+    )
+    def test_a_failed_write_logs_its_status_and_latency(self, logged, error, status):
+        client = FakeKvsClient([error])
+
+        with pytest.raises(ConnectionError):
+            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
+
+        assert logged[-1].startswith(f"KVS put code=bldc-flyer status={status} latency_ms=")
+
+    def test_giving_up_after_conflicts_logs_why(self, logged):
+        client = FakeKvsClient([client_error("ConflictException")] * 3)
+
+        with pytest.raises(ConnectionError):
+            KvsRedirectStore(client, "arn").publish("bldc-flyer", "https://example.com", "bldc")
+
+        assert "status=kept_conflicting" in logged[-1]
+
 
 class FakeS3Client:
     """Raises a chosen error from head_object."""
@@ -235,6 +272,14 @@ class TestS3ImageStore:
         store = S3ImageStore(FakeS3Client(client_error("404")), "images")
 
         assert store.exists("bldc-flyer", "full") is False
+
+    @pytest.mark.parametrize(("error", "status"), [(None, "ok"), (client_error("404"), "404")])
+    def test_a_check_logs_its_status_and_latency(self, logged, error, status):
+        S3ImageStore(FakeS3Client(error), "images").exists("bldc-flyer", "full")
+
+        assert logged[-1].startswith(
+            f"S3 head key=qr-images/bldc-flyer/full.png status={status} latency_ms="
+        )
 
     def test_a_403_is_a_real_error(self):
         store = S3ImageStore(FakeS3Client(client_error("403")), "images")
@@ -296,6 +341,22 @@ class TestLambdaRenderer:
 
         with pytest.raises(ConnectionError):
             LambdaRenderer(client, "render").render("c", "u", "full")
+
+    def test_a_crash_logs_its_status_and_latency(self, logged):
+        response = {"FunctionError": "Unhandled", "Payload": io.BytesIO(b"{}")}
+
+        with pytest.raises(ConnectionError):
+            LambdaRenderer(FakeLambdaClient(response), "render").render("c", "u", "full")
+
+        assert logged[-1].startswith("Render invoked code=c logo=full status=Unhandled latency_ms=")
+
+    def test_a_failed_invoke_logs_its_status_and_latency(self, logged):
+        client = FakeLambdaClient(error=client_error("ServiceException"))
+
+        with pytest.raises(ConnectionError):
+            LambdaRenderer(client, "render").render("c", "u", "full")
+
+        assert "status=ClientError" in logged[-1]
 
 
 class TestInfraAgreement:

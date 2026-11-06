@@ -30,6 +30,8 @@ CODE = {
     "label": "",
     "campaign": "",
 }
+IMAGE_URL = "https://images.example.com/presigned"
+PNG_BYTES = b"png bytes"
 
 
 class FakeCognito:
@@ -58,10 +60,16 @@ class FakeCognito:
 class FakeResponse:
     """A minimal requests response."""
 
-    def __init__(self, status: int, body: dict | None = None) -> None:
+    def __init__(self, status: int, body: dict | None = None, content: bytes = b"") -> None:
         self.status_code = status
         self.ok = status < 400
         self.body = body
+        self.content = content
+
+    def raise_for_status(self) -> None:
+        """Fail the way requests does for an error status."""
+        if not self.ok:
+            raise requests.HTTPError(f"status {self.status_code}")
 
     def json(self) -> dict:
         """Return the body, or fail the way requests does for non-JSON."""
@@ -86,16 +94,36 @@ def sent(monkeypatch) -> list[dict]:
 
     def fake_request(method, url, **kwargs):
         calls.append({"method": method, "url": url, **kwargs})
-        return FakeResponse(200, {**CODE, "codes": [CODE]})
+        return FakeResponse(200, {**CODE, "codes": [CODE], "url": IMAGE_URL})
 
     monkeypatch.setattr(qr_admin.requests, "request", fake_request)
     return calls
+
+
+@pytest.fixture
+def downloads(monkeypatch) -> list[str]:
+    """Answer each PNG download with fixed bytes, and record its URL."""
+    urls: list[str] = []
+
+    def fake_get(url, **_kwargs):
+        urls.append(url)
+        return FakeResponse(200, content=PNG_BYTES)
+
+    monkeypatch.setattr(qr_admin.requests, "get", fake_get)
+    return urls
 
 
 def test_settings_are_read_from_the_outputs_file(tmp_path):
     (tmp_path / "outputs-sandbox.json").write_text(json.dumps(OUTPUTS))
 
     assert load_settings("sandbox", tmp_path) == SETTINGS
+
+
+def test_a_corrupt_outputs_file_is_a_clean_error(tmp_path):
+    (tmp_path / "outputs-sandbox.json").write_text("not json")
+
+    with pytest.raises(CliError, match="not valid JSON"):
+        load_settings("sandbox", tmp_path)
 
 
 def test_a_missing_outputs_file_says_how_to_create_it(tmp_path):
@@ -262,9 +290,55 @@ def test_the_environment_must_be_chosen():
         qr_admin.build_parser().parse_args(["list"])
 
 
+def test_create_sends_the_fields_and_saves_the_default_png(sent, downloads, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = SimpleNamespace(
+        code="bldc-flyer",
+        kind="dynamic",
+        dest="https://example.com",
+        label="Flyer",
+        campaign="bldc",
+        output=None,
+    )
+
+    qr_admin._run_create(args, FakeSession(), ApiClient(SETTINGS, FakeSession()))
+
+    assert sent[0]["method"] == "POST"
+    assert sent[0]["json"] == {
+        "code": "bldc-flyer",
+        "kind": "dynamic",
+        "destination": "https://example.com",
+        "label": "Flyer",
+        "campaign": "bldc",
+    }
+    assert sent[1]["url"].endswith("/codes/bldc-flyer/image?logo=full")
+    assert downloads == [IMAGE_URL]
+    assert (tmp_path / "bldc-flyer-full.png").read_bytes() == PNG_BYTES
+
+
+def test_png_saves_the_chosen_logo_to_the_chosen_path(sent, downloads, tmp_path):
+    target = tmp_path / "chosen.png"
+    args = SimpleNamespace(code="bldc-flyer", logo="flower", output=target)
+
+    qr_admin._run_png(args, FakeSession(), ApiClient(SETTINGS, FakeSession()))
+
+    assert sent[0]["url"].endswith("/codes/bldc-flyer/image?logo=flower")
+    assert target.read_bytes() == PNG_BYTES
+
+
+def test_a_failed_download_is_a_clean_error_and_saves_nothing(sent, monkeypatch, tmp_path):
+    monkeypatch.setattr(qr_admin.requests, "get", lambda *_a, **_k: FakeResponse(403))
+    target = tmp_path / "chosen.png"
+    args = SimpleNamespace(code="bldc-flyer", logo="full", output=target)
+
+    with pytest.raises(CliError, match="Could not download"):
+        qr_admin._run_png(args, FakeSession(), ApiClient(SETTINGS, FakeSession()))
+
+    assert not target.exists()
+
+
 def test_errors_exit_with_status_1(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(qr_admin, "OUTPUTS_DIR", tmp_path)
-    monkeypatch.setattr(qr_admin.load_settings, "__defaults__", (tmp_path,))
 
     assert qr_admin.main(["--env", "sandbox", "list"]) == 1
     assert "Error:" in capsys.readouterr().err
@@ -276,7 +350,7 @@ def test_verbose_keeps_aws_debug_logging_off(monkeypatch, tmp_path):
     monkeypatch.setattr(
         qr_admin.logging, "basicConfig", lambda **kwargs: root_levels.append(kwargs["level"])
     )
-    monkeypatch.setattr(qr_admin.load_settings, "__defaults__", (tmp_path,))
+    monkeypatch.setattr(qr_admin, "OUTPUTS_DIR", tmp_path)
     monkeypatch.setattr(qr_admin, "logger", logging.getLogger("qr-admin-test"))
 
     qr_admin.main(["--env", "sandbox", "--verbose", "list"])

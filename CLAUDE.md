@@ -29,7 +29,7 @@ Static and dynamic QR codes for 360 Balanced Living. Read `docs/DESIGN.md` befor
   try to replace it, so split a stack before its first deploy.
 - Keep `@aws-cdk/core:defaultCrossStackReferences` as `strong`. A test guards this.
 - Comment each section of infrastructure files and explain CDK concepts.
-- Tests build stages with `new App({ context: { 'aws:cdk:bundling-stacks': [] } })` to skip Lambda bundling.
+- Tests build stacks through `test/helpers.ts`, which uses a fake account and skips Lambda bundling.
 
 ## Checks
 

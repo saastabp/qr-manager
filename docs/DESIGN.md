@@ -622,7 +622,7 @@ BC7 with its schedule. Ownership is already enforced, so no access rules change.
   script's own logger, because debug logging in botocore prints the password at sign-in.
 - **API logging:** pairable entry and exit logs with correlation ID and `duration_ms`; every error
   response, 4xx included, logs its body and stack trace at ERROR. Alarms match log text, not the level, so
-  these lines never page anyone. Own lines for DynamoDB writes, KVS calls with latency, and
+  these lines never page anyone. Own lines for DynamoDB writes, KVS and S3 calls with status and latency, and
   authorization decisions. The API Lambda also logs render invocations with latency, and passes the
   correlation ID so the render Lambda's entry and exit logs pair with the request.
   Lazy `%s` formatting. The raw event is never logged, as it carries the JWT.

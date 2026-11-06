@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from typing import Any
 
 from cases.completion import Dependencies
 from cases.ports import CodeRepository, ImageStore, RedirectStore, Renderer
@@ -13,6 +15,41 @@ REDIRECT_DOMAIN = "qr.example.com"
 
 OWNER = Actor(sub="owner-sub", email="owner@example.com")
 STRANGER = Actor(sub="stranger-sub", email="stranger@example.com")
+
+
+def api_event(
+    method: str,
+    path: str,
+    body: Any = None,
+    actor: Actor = OWNER,
+    query: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    base64_encoded: bool = False,
+) -> dict[str, Any]:
+    """Build the event API Gateway sends for one request. A string body is sent as is."""
+    event: dict[str, Any] = {
+        "version": "2.0",
+        "routeKey": "$default",
+        "rawPath": path,
+        "rawQueryString": "",
+        "headers": headers or {},
+        "queryStringParameters": query or {},
+        "requestContext": {
+            "requestId": "request-1",
+            "stage": "$default",
+            "http": {"method": method, "path": path},
+            "authorizer": {
+                "jwt": {"claims": {"sub": actor.sub, "email": actor.email}, "scopes": []}
+            },
+        },
+        "isBase64Encoded": base64_encoded,
+    }
+    if isinstance(body, str):
+        event["body"] = body
+    elif body is not None:
+        event["body"] = json.dumps(body)
+
+    return event
 
 
 class FakeRepository(CodeRepository):

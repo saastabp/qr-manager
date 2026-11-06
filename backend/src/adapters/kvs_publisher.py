@@ -61,14 +61,23 @@ class KvsRedirectStore(RedirectStore):
                 etag = self._client.describe_key_value_store(KvsARN=self._kvs_arn)["ETag"]
                 self._client.put_key(KvsARN=self._kvs_arn, Key=code, Value=value, IfMatch=etag)
             except ClientError as error:
-                if error.response["Error"]["Code"] != "ConflictException":
+                status = error.response["Error"]["Code"]
+                if status != "ConflictException":
+                    _log_failure(code, status, start)
                     raise ConnectionError("KVS write failed") from error
                 logger.info("KVS conflict code=%s attempt=%s", code, attempt)
                 continue
             except BotoCoreError as error:
+                _log_failure(code, type(error).__name__, start)
                 raise ConnectionError("KVS write failed") from error
 
             logger.info("KVS put code=%s status=ok latency_ms=%s", code, elapsed_ms(start))
             return
 
+        _log_failure(code, "kept_conflicting", start)
         raise ConnectionError("KVS write kept conflicting")
+
+
+def _log_failure(code: str, status: str, start: float) -> None:
+    """Log a failed write with the same fields as a successful one."""
+    logger.warning("KVS put code=%s status=%s latency_ms=%s", code, status, elapsed_ms(start))

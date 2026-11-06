@@ -62,15 +62,15 @@ class Settings:
     client_id: str
 
 
-def load_settings(env: str, outputs_dir: Path = OUTPUTS_DIR) -> Settings:
+def load_settings(env: str, outputs_dir: Path | None = None) -> Settings:
     """Read an environment's settings from its CDK outputs file.
 
     Parameters
     ----------
     env : str
         The environment name.
-    outputs_dir : Path
-        The folder holding the outputs file.
+    outputs_dir : Path or None
+        The folder holding the outputs file. Defaults to ``infra/``.
 
     Returns
     -------
@@ -80,15 +80,19 @@ def load_settings(env: str, outputs_dir: Path = OUTPUTS_DIR) -> Settings:
     Raises
     ------
     CliError
-        If the outputs file is missing or incomplete.
+        If the outputs file is missing, corrupt, or incomplete.
     """
-    path = outputs_dir / f"outputs-{env}.json"
+    path = (outputs_dir or OUTPUTS_DIR) / f"outputs-{env}.json"
     if not path.is_file():
         raise CliError(
             f"{path} not found. Deploy with --outputs-file outputs-{env}.json to create it."
         )
 
-    stacks = json.loads(path.read_text())
+    try:
+        stacks = json.loads(path.read_text())
+    except ValueError as error:
+        raise CliError(f"{path} is not valid JSON: {error}") from error
+
     api = stacks.get(f"qr-manager-{env}-Api", {})
     auth = stacks.get(f"qr-manager-{env}-Auth", {})
     api_url = next((value for key, value in api.items() if "ApiUrl" in key), None)

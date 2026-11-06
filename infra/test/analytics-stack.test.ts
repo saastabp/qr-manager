@@ -4,12 +4,9 @@
  * Guards the column mappings against the real log format, partition projection, the
  * per-environment names, and the per-query scan limit.
  */
-import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { EnvConfig, PROD, SANDBOX } from '../lib/config';
-import { QrManagerStage } from '../lib/stage';
-
-const ENV = { account: '111111111111', region: 'us-east-1' };
+import { stackTemplate } from './helpers';
 
 /** Field names from a real delivered log file. */
 const REAL_LOG_FIELDS = [
@@ -25,11 +22,9 @@ const REAL_LOG_FIELDS = [
   'viewer-request-log-data',
 ];
 
-/** Build the stack as the real app does, skipping the slow Lambda bundling. */
+/** Build the Analytics stack as the real app does. */
 function templateFor(config: EnvConfig): Template {
-  const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
-  const stage = new QrManagerStage(app, config.envName, { env: ENV, config });
-  return Template.fromStack(stage.node.findChild('Analytics') as Stack);
+  return stackTemplate(config, 'Analytics');
 }
 
 /** Return a table or view's definition from the template, by name. */

@@ -4,19 +4,9 @@
  * Guards authentication on every route, the no-delete rule, prod data protection, and
  * least privilege for the render Lambda.
  */
-import { App, Stack } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
-import { EnvConfig, PROD, SANDBOX } from '../lib/config';
-import { QrManagerStage } from '../lib/stage';
-
-const ENV = { account: '111111111111', region: 'us-east-1' };
-
-/** Build one stack as the real app does, skipping the slow Lambda bundling. */
-function templateFor(config: EnvConfig, stackId: string): Template {
-  const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
-  const stage = new QrManagerStage(app, config.envName, { env: ENV, config });
-  return Template.fromStack(stage.node.findChild(stackId) as Stack);
-}
+import { Match } from 'aws-cdk-lib/assertions';
+import { PROD, SANDBOX } from '../lib/config';
+import { stackTemplate as templateFor } from './helpers';
 
 describe('API routes', () => {
   const routes = Object.values(
@@ -130,7 +120,12 @@ describe('Lambda functions', () => {
     template.hasResourceProperties('AWS::Logs::MetricFilter', {
       FilterPattern: Match.stringLikeRegexp('Publish failed.*Render failed'),
     });
-    template.hasResourceProperties('AWS::CloudWatch::Alarm', { Threshold: 1 });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'qr-manager-sandbox-step-failures',
+      Threshold: 1,
+      TreatMissingData: 'notBreaching',
+      AlarmActions: [Match.anyValue()],
+    });
   });
 });
 
