@@ -58,6 +58,10 @@ class CodeNotReady(CaseError):
     """The code is still pending, so its image cannot be downloaded yet."""
 
 
+class IdentityMissing(CaseError):
+    """The token is genuine but does not say who the caller is, as with an access token."""
+
+
 class CodeConflict(CaseError):
     """The code changed after this request read it, so the change was not saved."""
 

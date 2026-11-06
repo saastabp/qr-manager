@@ -68,7 +68,7 @@ shared in `completion.py`.
 
 **Shared policies** (`cases/policies.py`): `authorize(actor, code, action)`, reserved codes
 (`api`, `admin`, `health`), `https`-only destinations, the campaign format, the 900-byte limit on the
-final URL, and the `allowed_actions` calculation. A campaign is blank, or follows the same format as a
+final URL, the 200-character limit on labels, and the `allowed_actions` calculation. A campaign is blank, or follows the same format as a
 code: lowercase letters, digits, and hyphens, up to 64 characters. That keeps it safe in the scan log
 format. The URL limit leaves room for the campaign and JSON inside KVS's 1 KB value limit.
 
@@ -558,7 +558,9 @@ Versions pinned as there: `aws-cdk-lib` 2.261.0, `aws-cdk` 2.1132.0, run with `n
 
 ## 7. API contract
 
-All routes sit behind the JWT authorizer, and this contract serves both the script and the UI.
+All routes sit behind the JWT authorizer, and this contract serves both the script and the UI. The
+authorizer also accepts access tokens, which have no `email` claim, so the API answers those with a 401
+`unauthorized`. Phase II must send the ID token too.
 
 | Route | Case | Result |
 |---|---|---|

@@ -19,7 +19,7 @@ from cases.errors import (
     StepFailed,
 )
 from cases.get_image import get_image
-from cases.policies import allowed_actions, status_of
+from cases.policies import MAX_LABEL_CHARACTERS, allowed_actions, status_of
 from cases.redirect_url import build_final_url
 from cases.view_codes import get_code, list_codes
 from common.logger import logger
@@ -109,6 +109,25 @@ class TestCreate:
             create_code(CreateCodeRequest("ok", CodeKind.DYNAMIC, url), OWNER, world.deps)
 
         assert caught.value.errors[0].field == "destination"
+
+    def test_a_label_can_be_the_longest_allowed(self, world):
+        request = CreateCodeRequest(
+            "ok", CodeKind.DYNAMIC, DESTINATION, label="a" * MAX_LABEL_CHARACTERS
+        )
+
+        code, _ = create_code(request, OWNER, world.deps)
+
+        assert len(code.label) == MAX_LABEL_CHARACTERS
+
+    def test_a_longer_label_is_refused(self, world):
+        request = CreateCodeRequest(
+            "ok", CodeKind.DYNAMIC, DESTINATION, label="a" * (MAX_LABEL_CHARACTERS + 1)
+        )
+
+        with pytest.raises(InvalidInput) as caught:
+            create_code(request, OWNER, world.deps)
+
+        assert caught.value.errors[0].field == "label"
 
     def test_a_percent_encoded_destination_is_allowed(self, world):
         url = "https://example.com/caf%C3%A9?a=1&b=%20#top"
@@ -293,6 +312,15 @@ class TestChange:
         code = change_code(ChangeCodeRequest("menu-card", label="Menu"), OWNER, world.deps)
 
         assert code.label == "Menu"
+
+    def test_a_new_label_that_is_too_long_is_refused(self, world):
+        create_code(dynamic(), OWNER, world.deps)
+        too_long = "a" * (MAX_LABEL_CHARACTERS + 1)
+
+        with pytest.raises(InvalidInput) as caught:
+            change_code(ChangeCodeRequest("bldc-flyer", label=too_long), OWNER, world.deps)
+
+        assert caught.value.errors[0].field == "label"
 
     def test_new_destination_must_be_https(self, world):
         create_code(dynamic(), OWNER, world.deps)

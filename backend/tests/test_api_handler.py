@@ -73,6 +73,14 @@ def test_the_clients_correlation_id_is_used(handler):
     assert logger.get_correlation_id() == "from-client"
 
 
+def test_the_correlation_header_is_found_in_any_case(handler):
+    event = api_event("GET", "/codes", headers={"X-Correlation-Id": "from-client"})
+
+    handler.lambda_handler(event, {})
+
+    assert logger.get_correlation_id() == "from-client"
+
+
 def test_a_long_correlation_id_is_cut_short(handler):
     event = api_event("GET", "/codes", headers={"x-correlation-id": "a" * 500})
 

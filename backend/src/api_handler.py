@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Any
 
+from aws_lambda_powertools.utilities.data_classes import APIGatewayProxyEventV2
+
 from bootstrap import build_dependencies
 from common.logger import elapsed_ms, logger
 from handlers.routes import create_app
@@ -42,13 +44,13 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         Anything the resolver itself could not handle, once it has been logged.
     """
     start = time.monotonic()
-    request_context = event.get("requestContext", {})
-    method = request_context.get("http", {}).get("method")
-    path = event.get("rawPath")
-    claims = request_context.get("authorizer", {}).get("jwt", {}).get("claims", {})
+    request = APIGatewayProxyEventV2(event)
+    method = request.request_context.http.method
+    path = request.raw_path
+    user = request.request_context.authorizer.jwt_claim.get("sub")
 
-    logger.set_correlation_id(_correlation_id(event))
-    logger.info("Request start method=%s path=%s user=%s", method, path, claims.get("sub"))
+    logger.set_correlation_id(_correlation_id(request))
+    logger.info("Request start method=%s path=%s user=%s", method, path, user)
 
     try:
         response = app.resolve(event, context)
@@ -73,14 +75,13 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     return response
 
 
-def _correlation_id(event: dict[str, Any]) -> str | None:
+def _correlation_id(request: APIGatewayProxyEventV2) -> str:
     """Use the client's correlation id, or API Gateway's request id if there is none."""
-    headers = event.get("headers") or {}
-    supplied = headers.get("x-correlation-id")
+    supplied = request.headers.get("x-correlation-id")
     if supplied:
         return supplied[:MAX_CORRELATION_ID_LENGTH]
 
-    return event.get("requestContext", {}).get("requestId")
+    return request.request_context.request_id
 
 
 def _level_for(status: int) -> int:

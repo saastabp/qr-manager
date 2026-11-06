@@ -71,7 +71,7 @@ def create_code(
         request.code,
         request.destination,
         request.campaign,
-        policies.code_name_errors(request.code),
+        policies.code_name_errors(request.code) + policies.label_errors(request.label),
     )
     now = datetime.now(UTC)
     candidate = QrCode(

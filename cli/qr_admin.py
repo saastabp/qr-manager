@@ -16,6 +16,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import boto3
 import requests
@@ -218,7 +219,13 @@ class ApiClient:
         self._settings = settings
         self._session = session
 
-    def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Send a request and return the parsed response.
 
         Parameters
@@ -229,6 +236,8 @@ class ApiClient:
             The path, such as ``/codes``.
         body : dict[str, Any] or None
             The JSON body, if any.
+        params : dict[str, str] or None
+            The query string values, if any.
 
         Returns
         -------
@@ -247,6 +256,7 @@ class ApiClient:
                 method,
                 f"{self._settings.api_url}{path}",
                 json=body,
+                params=params,
                 headers={
                     "authorization": f"Bearer {self._session.id_token()}",
                     "x-correlation-id": correlation_id,
@@ -289,10 +299,15 @@ def _show(code: dict[str, Any]) -> None:
         print(f"  campaign:    {code['campaign']}")
 
 
+def _code_path(code: str) -> str:
+    """Build the API path of a code. The name is typed by the user, so it is encoded."""
+    return f"/codes/{quote(code, safe='')}"
+
+
 def _save_png(api: ApiClient, code: str, logo: str, output: Path | None) -> None:
     """Download a code's PNG."""
     target = output or Path(f"{code}-{logo}.png")
-    link = api.call("GET", f"/codes/{code}/image?logo={logo}")
+    link = api.call("GET", f"{_code_path(code)}/image", params={"logo": logo})
     try:
         response = requests.get(link["url"], timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
@@ -331,7 +346,7 @@ def _run_update(args: argparse.Namespace, _session: Session, api: ApiClient) -> 
     """Handle the update command. Options left out are not sent."""
     fields = {"destination": args.dest, "label": args.label, "campaign": args.campaign}
     body = {name: value for name, value in fields.items() if value is not None}
-    _show(api.call("PATCH", f"/codes/{args.code}", body))
+    _show(api.call("PATCH", _code_path(args.code), body))
 
 
 def _run_list(_args: argparse.Namespace, _session: Session, api: ApiClient) -> None:
@@ -342,7 +357,7 @@ def _run_list(_args: argparse.Namespace, _session: Session, api: ApiClient) -> N
 
 def _run_show(args: argparse.Namespace, _session: Session, api: ApiClient) -> None:
     """Handle the show command."""
-    _show(api.call("GET", f"/codes/{args.code}"))
+    _show(api.call("GET", _code_path(args.code)))
 
 
 def _run_png(args: argparse.Namespace, _session: Session, api: ApiClient) -> None:
@@ -357,7 +372,7 @@ def _run_resync(args: argparse.Namespace, _session: Session, api: ApiClient) -> 
     failed = 0
     for code in chosen:
         try:
-            result = api.call("PATCH", f"/codes/{code['code']}", {})
+            result = api.call("PATCH", _code_path(code["code"]), {})
         except CliError as error:
             failed += 1
             print(f"{code['code']}: failed\n{error}", file=sys.stderr)

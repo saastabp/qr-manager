@@ -311,7 +311,8 @@ def test_create_sends_the_fields_and_saves_the_default_png(sent, downloads, tmp_
         "label": "Flyer",
         "campaign": "bldc",
     }
-    assert sent[1]["url"].endswith("/codes/bldc-flyer/image?logo=full")
+    assert sent[1]["url"].endswith("/codes/bldc-flyer/image")
+    assert sent[1]["params"] == {"logo": "full"}
     assert downloads == [IMAGE_URL]
     assert (tmp_path / "bldc-flyer-full.png").read_bytes() == PNG_BYTES
 
@@ -322,8 +323,16 @@ def test_png_saves_the_chosen_logo_to_the_chosen_path(sent, downloads, tmp_path)
 
     qr_admin._run_png(args, FakeSession(), ApiClient(SETTINGS, FakeSession()))
 
-    assert sent[0]["url"].endswith("/codes/bldc-flyer/image?logo=flower")
+    assert sent[0]["params"] == {"logo": "flower"}
     assert target.read_bytes() == PNG_BYTES
+
+
+def test_a_typed_code_name_cannot_change_the_path(sent):
+    args = SimpleNamespace(code="../admin?x=1")
+
+    qr_admin._run_show(args, FakeSession(), ApiClient(SETTINGS, FakeSession()))
+
+    assert sent[0]["url"] == "https://api.example.com/codes/..%2Fadmin%3Fx%3D1"
 
 
 def test_a_failed_download_is_a_clean_error_and_saves_nothing(sent, monkeypatch, tmp_path):

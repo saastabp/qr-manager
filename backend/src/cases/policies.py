@@ -27,6 +27,10 @@ MAX_FINAL_URL_BYTES = 900
 #: Location header, and JSON encoding does not grow it, so the limit above holds.
 URL_CHARACTERS = r"[!#-\[\]-~]+"
 
+#: Longest label, in characters. Without a limit, a huge label would exceed DynamoDB's item
+#: size and reach the caller as a 500.
+MAX_LABEL_CHARACTERS = 200
+
 #: Shown when a code or campaign does not follow the shared name format.
 NAME_FORMAT_MESSAGE = (
     "Use 1 to 64 lowercase letters, digits, or hyphens, not starting or ending in a hyphen"
@@ -118,6 +122,26 @@ def campaign_errors(campaign: str) -> list[FieldError]:
     """
     if campaign and not re.fullmatch(CODE_PATTERN, campaign):
         return [FieldError("campaign", NAME_FORMAT_MESSAGE)]
+
+    return []
+
+
+def label_errors(label: str) -> list[FieldError]:
+    """Check a label's length.
+
+    Parameters
+    ----------
+    label : str
+        The proposed label. Blank means none.
+
+    Returns
+    -------
+    list[FieldError]
+        Any problems found; empty if the label is acceptable.
+    """
+    if len(label) > MAX_LABEL_CHARACTERS:
+        message = f"Label must be {MAX_LABEL_CHARACTERS} characters or fewer"
+        return [FieldError("label", message)]
 
     return []
 

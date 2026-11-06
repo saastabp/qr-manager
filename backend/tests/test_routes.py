@@ -211,6 +211,16 @@ def test_a_change_based_on_a_stale_read_returns_409(api):
     assert body["error"]["type"] == "conflict"
 
 
+def test_a_token_with_no_email_returns_401(api):
+    event = api_event("GET", "/codes")
+    del event["requestContext"]["authorizer"]["jwt"]["claims"]["email"]
+
+    response = api.app.resolve(event, {})
+
+    assert response["statusCode"] == 401
+    assert json.loads(response["body"])["error"]["type"] == "unauthorized"
+
+
 def test_an_unparseable_destination_returns_400(api):
     status, body = api.call("POST", "/codes", {**DYNAMIC_BODY, "destination": "https://[bad"})
 

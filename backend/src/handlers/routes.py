@@ -21,6 +21,7 @@ from cases.errors import (
     CodeNotReady,
     CodeTaken,
     FieldError,
+    IdentityMissing,
     InvalidInput,
     StepFailed,
 )
@@ -49,6 +50,10 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
     def actor() -> Actor:
         """Build the caller from the token API Gateway has already verified."""
         claims = app.current_event.request_context.authorizer.jwt_claim
+        # API Gateway also accepts access tokens, which have no email claim.
+        if "sub" not in claims or "email" not in claims:
+            raise IdentityMissing
+
         return Actor(sub=claims["sub"], email=claims["email"])
 
     def body(schema: type[BaseModel]) -> Any:
@@ -121,6 +126,11 @@ def create_app(deps: Dependencies) -> APIGatewayHttpResolver:
         """Report a broken rule, with one entry per field."""
         fields = [{"field": e.field, "message": e.message} for e in error.errors]
         return _error_response(error, 400, "validation", str(error), fields)
+
+    @app.exception_handler(IdentityMissing)
+    def on_identity_missing(error: IdentityMissing) -> Response:
+        """Report a token that does not say who the caller is."""
+        return _error_response(error, 401, "unauthorized", "Sign in with an ID token")
 
     @app.exception_handler(CodeNotFound)
     def on_not_found(error: CodeNotFound) -> Response:

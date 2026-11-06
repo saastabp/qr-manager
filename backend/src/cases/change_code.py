@@ -75,7 +75,9 @@ def change_code(request: ChangeCodeRequest, actor: Actor, deps: Dependencies) ->
 
     _reject_static_url_change(existing, destination, campaign)
 
-    final_url = policies.validated_final_url(existing.code, destination, campaign)
+    final_url = policies.validated_final_url(
+        existing.code, destination, campaign, policies.label_errors(label)
+    )
 
     changed = existing.model_copy(
         update={
